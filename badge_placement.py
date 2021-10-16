@@ -148,14 +148,11 @@ def get_picky_scouts(periods):
     p3_chosen_2 = periods[2].loc[:, 'third'].isnull()
     return p1_chosen_1 | p1_chosen_2 | p2_chosen_1 | p2_chosen_2 | p3_chosen_1 | p3_chosen_2
 
-
-def get_missed_scouts(periods, unassigned):
-    def is_missed(id):
-        return id in unassigned
-    return periods[0]['id'].apply(is_missed) | periods[1]['id'].apply(is_missed) | periods[2]['id'].apply(is_missed)
+def get_missed_scouts(unassigned_df):
+    return unassigned_df[:, 0] | unassigned_df[:, 1] | unassigned_df[:, 2]
 
 
-def assign_scouts_by_id(periods, assignments, unassigned, unassigned_df, ranks, seed, ids=None, use_all_prefs=False):
+def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=None, use_all_prefs=False):
     def is_room(tup):
         return len(tup[1]) < tup[0]
 
@@ -170,9 +167,14 @@ def assign_scouts_by_id(periods, assignments, unassigned, unassigned_df, ranks, 
                 badge_roster = assignments[i][badge][1]
                 badge_roster.add(row['id'])
                 unassigned_df.iloc[row['id'], i] = False
-                unassigned[i].discard(row['id'])
+
+                # Remove the preference so that scouts won't be assigned to duplicate classes across periods
+                for j in range(3):
+                    for k in ['first', 'second', 'third']:
+                        if periods[j].loc[row['id'], k] is badge:
+                            periods[j].loc[row['id'], k] = np.nan
+
                 return True
-        unassigned[i].add(row['id'])
         return False
 
     for i in range(len(periods)):
@@ -185,6 +187,8 @@ def assign_scouts_by_id(periods, assignments, unassigned, unassigned_df, ranks, 
         chosen = periods[i][records_to_select]  # Careful to make a copy
         chosen = chosen.sample(frac=1, random_state=seed)  # shuffle
         for index, row in chosen.iterrows():
+
+            # If the scout has already been assigned, stop
             if not unassigned_df.iloc[row['id'], i]:
                 continue
             for p_num, p_name in enumerate(['first', 'second', 'third']):
@@ -208,13 +212,10 @@ def assign_scouts_by_id(periods, assignments, unassigned, unassigned_df, ranks, 
                         ranks[i][1] += 1
                         continue
 
-    return unassigned
-
 
 def assign_scouts(pref, badges, seed):
     periods = extract_periods(pref)
     assignments = [{}, {}, {}]
-    unassigned = [set(), set(), set()]
     unassigned_df = pd.DataFrame(np.ones((len(pref.index), 3), dtype=bool))
     ranks = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
     for i in range(len(periods)):
@@ -225,13 +226,12 @@ def assign_scouts(pref, badges, seed):
             # Make an empty list for every badge in the period
             assignments[i][badge] = (int(capacity.iloc[0]), set())
 
-    assign_scouts_by_id(periods, assignments, unassigned, unassigned_df, ranks, seed, get_part_time_scouts(periods))
-    assign_scouts_by_id(periods, assignments, unassigned, unassigned_df, ranks, seed, get_picky_scouts(periods))
-    assign_scouts_by_id(periods, assignments, unassigned, unassigned_df, ranks, seed, get_missed_scouts(periods, unassigned))
-    assign_scouts_by_id(periods, assignments, unassigned, unassigned_df, ranks, seed, get_missed_scouts(periods, unassigned), use_all_prefs=True)
-    assign_scouts_by_id(periods, assignments, unassigned, unassigned_df, ranks, seed)
-    assign_scouts_by_id(periods, assignments, unassigned, unassigned_df, ranks, seed, use_all_prefs=True)
-    return assignments, unassigned, unassigned_df, ranks
+    assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=get_part_time_scouts(periods))
+    assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=get_picky_scouts(periods))
+    # assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, get_missed_scouts(periods, unassigned), use_all_prefs=True)
+    assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed)
+    # assign_scouts_by_id(periods, assignments, unassigned, unassigned_df, ranks, seed, use_all_prefs=True)
+    return assignments, unassigned_df, ranks
 
 
 def pad_set(s, length):
@@ -241,13 +241,13 @@ def pad_set(s, length):
     return s
 
 
-def export_periods(pref, badges, assignments, unassigned):
+def export_periods(pref, badges, assignments, unassigned_df):
     for i in range(3):
         results = {}
-        max_size = max(badges[f'p{i+1} capacity'].max(), len(unassigned[i]))
+        max_size = max(badges[f'p{i+1} capacity'].max(), np.array(unassigned_df.iloc[:, i]).sum())
         for badge, data in sorted(assignments[i].items()):
             results[badge] = pad_set(data[1], max_size)
-        results['Unassigned'] = list(unassigned[i])
+        results['Unassigned'] = list(np.array(unassigned_df.iloc[:, i]).nonzero()[0])
 
         results = pd.DataFrame.from_dict(results)
         results.to_csv(f'out/Period_{i+1}_Badges_ID.csv', index=False)
@@ -259,17 +259,16 @@ def export_periods(pref, badges, assignments, unassigned):
         for col in results.columns:
             results.loc[:, col] = sorted(list(results.loc[:, col]))
         results.replace(zst, np.nan, inplace=True)
-        results.to_csv(f'out/Period_{i + 1}_Badges_Sorted.csv', index=False)
+        results.to_csv(f'out/Period_{i + 1}_Badges_Sorted.csv', index=True)
 
 
-def score_assignments(unassigned, ranks):
+def score_assignments(unassigned_df, ranks):
     score = 0
     for successes in ranks:
         score += 3 * successes[0]
         score += 2 * successes[1]
         score += 1 * successes[2]
-    for failures in unassigned:
-        score -= 10 * len(failures)
+    score -= 10 * np.sum(np.array(unassigned_df))
     return score
 
 
@@ -314,9 +313,9 @@ def main(list_badges=None, prepare_data=None, stop_before_clear=None, seed=None,
     if prepare_data:
         return
 
-    assignments, unassigned, unassigned_df, ranks = assign_scouts(pref, badges, seed)
-    export_periods(pref, badges, assignments, unassigned)
-    print(f'score: {score_assignments(unassigned, ranks)}')
+    assignments, unassigned_df, ranks = assign_scouts(pref, badges, seed)
+    export_periods(pref, badges, assignments, unassigned_df)
+    print(f'score: {score_assignments(unassigned_df, ranks)}')
 
 
 if __name__ == '__main__':
