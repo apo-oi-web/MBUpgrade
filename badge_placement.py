@@ -163,6 +163,15 @@ def make_recommendations(periods, badges):
         recommendations.to_csv(f'out/rec/Period_{i}_Rec.csv')
 
 
+def get_interested_scouts(periods):
+    def is_interested(row):
+        return (row['first'] is not np.nan) or (row['second'] is not np.nan) or (row['third'] is not np.nan)
+
+    interested = pd.DataFrame(np.ones((len(periods[0].index), 3), dtype=bool))
+    for i, period in enumerate(periods):
+        interested.iloc[:, i] = period.apply(is_interested, axis=1)
+    return interested
+
 
 def get_part_time_scouts(periods):
     p1_chosen = periods[0].loc[:, 'first'].isnull()
@@ -255,10 +264,11 @@ def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=No
                 go_ham()
 
 
-def assign_scouts(pref, badges, seed):
+def assign_scouts(pref, badges, interested, seed):
     periods = extract_periods(pref)
     assignments = [{}, {}, {}]
-    unassigned_df = pd.DataFrame(np.ones((len(pref.index), 3), dtype=bool))
+    unassigned_df = interested.copy()
+    # unassigned_df = pd.DataFrame(np.ones((len(pref.index), 3), dtype=bool))
     ranks = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
     for i in range(len(periods)):
         for badge in badges[f'p{i+1}']:
@@ -359,6 +369,7 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
         list_courses(extract_periods(pref), badges)
         return
 
+    interested = get_interested_scouts(extract_periods(pref))
     clean_typos(pref, badges, clean_errors=not stop_before_clear)
 
     if prepare_data:
@@ -368,7 +379,7 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
         make_recommendations(extract_periods(pref), badges)
         return
 
-    assignments, unassigned_df, ranks = assign_scouts(pref, badges, seed)
+    assignments, unassigned_df, ranks = assign_scouts(pref, badges, interested, seed)
     export_periods(pref, badges, assignments, unassigned_df)
     print(f'score: {score_assignments(unassigned_df, ranks)}')
 
