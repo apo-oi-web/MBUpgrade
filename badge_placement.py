@@ -344,10 +344,11 @@ def score_assignments(unassigned_df, ranks, interested):
 @click.option('--list-badges', '-l', is_flag=True, required=False, help='List all badges scouts have selected, then exit.')
 @click.option('--prepare-data', '-p', is_flag=True, required=False, help='Clean badge signups using typo_dict, then exit.')
 @click.option('--stop-before-clear', '-b', is_flag=True, required=False, help='If cleaning, stops before clear. Otherwise No op.')
+@click.option('--interest-after-clean', '-i', is_flag=True, required=False, help='Gauges scout interest after cleaning entries, not before.')
 @click.option('--recommendations', '-r', is_flag=True, required=False, help='Recommend how many sections to have for each badge, then exit.')
 @click.option('--seed', '-s', required=False, help='Pass in an int to be used as a random seed.')
 @click.argument('pref-file', type=click.Path(exists=True))
-def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None, recommendations=None, seed=None):
+def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None, interest_after_clean=None, recommendations=None, seed=None):
 
     if seed is None:
         seed = randrange(0, (2**32) - 1)
@@ -387,6 +388,8 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
         make_recommendations(extract_periods(pref), badges)
         return
 
+    if interest_after_clean:
+        interested = get_interested_scouts(extract_periods(pref))
     assignments, unassigned_df, ranks = assign_scouts(pref, badges, interested, seed)
     export_periods(pref, badges, assignments, unassigned_df, interested)
     print(f'score: {score_assignments(unassigned_df, ranks, interested)}')
