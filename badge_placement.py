@@ -6,7 +6,6 @@ import typo_dicts
 from itertools import chain
 import numpy as np
 from sys import version_info, version
-from datetime import datetime
 from random import randrange
 
 name_str = 'Name'
@@ -132,6 +131,39 @@ def shift_badges_left(pref, badges):
             pref.loc[to_replace, period[i+1]] = np.nan
 
 
+def make_recommendations(periods, badges):
+    if not exists('out/rec'):
+        mkdir('out/rec')
+    for i, period in enumerate(periods):
+        period_rec = {}
+
+        for badge in badges[['p1', 'p2', 'p3'][i]]:
+            period_rec[badge] = [0, 0, 0]
+
+        for index, row in period.iterrows():
+            # How many sections would be needed to get everyone into their first choice?
+            badge = row['first']
+            if badge in period_rec.keys():
+                period_rec[badge][0] += 1
+                period_rec[badge][1] += 1/2
+                period_rec[badge][2] += 1/3
+
+            # How many sections would be needed to get everyone into their second choice?
+            badge = row['second']
+            if badge in period_rec.keys():
+                period_rec[badge][1] += 1/2
+                period_rec[badge][2] += 1/3
+
+            # How many sections would be needed to get everyone into their third choice?
+            badge = row['third']
+            if badge in period_rec.keys():
+                period_rec[badge][2] += 1/3
+
+        recommendations = pd.DataFrame.from_dict(period_rec, orient='index', columns=['First Preference', 'First or Second', 'Any Preference'])
+        recommendations.to_csv(f'out/rec/Period_{i}_Rec.csv')
+
+
+
 def get_part_time_scouts(periods):
     p1_chosen = periods[0].loc[:, 'first'].isnull()
     p2_chosen = periods[1].loc[:, 'first'].isnull()
@@ -147,6 +179,7 @@ def get_picky_scouts(periods):
     p3_chosen_1 = periods[2].loc[:, 'second'].isnull()
     p3_chosen_2 = periods[2].loc[:, 'third'].isnull()
     return p1_chosen_1 | p1_chosen_2 | p2_chosen_1 | p2_chosen_2 | p3_chosen_1 | p3_chosen_2
+
 
 def get_missed_scouts(unassigned_df):
     return unassigned_df[:, 0] | unassigned_df[:, 1] | unassigned_df[:, 2]
@@ -251,6 +284,12 @@ def pad_set(s, length):
 
 
 def export_periods(pref, badges, assignments, unassigned_df):
+    if not exists('out/ids'):
+        mkdir('out/ids')
+    if not exists('out/sorted'):
+        mkdir('out/sorted')
+    if not exists('out/id_match'):
+        mkdir('out/id_match')
     for i in range(3):
         results = {}
         max_size = max(badges[f'p{i+1} capacity'].max(), np.array(unassigned_df.iloc[:, i]).sum())
@@ -259,9 +298,9 @@ def export_periods(pref, badges, assignments, unassigned_df):
         results['Unassigned'] = list(np.array(unassigned_df.iloc[:, i]).nonzero()[0])
 
         results = pd.DataFrame.from_dict(results)
-        results.to_csv(f'out/Period_{i+1}_Badges_ID.csv', index=False)
+        results.to_csv(f'out/ids/Period_{i+1}_Badges_ID.csv', index=False)
         results.replace(dict(zip(pref[id_str], pref[name_str])), inplace=True)
-        results.to_csv(f'out/Period_{i+1}_Badges.csv', index=False)
+        results.to_csv(f'out/id_match/Period_{i+1}_Badges.csv', index=False)
 
         # Sort CSV and pull some shenanigans to sort np.nan
         zst = 'zzzzzzzz'
@@ -270,7 +309,7 @@ def export_periods(pref, badges, assignments, unassigned_df):
             results.loc[:, col] = sorted(list(results.loc[:, col]))
         results.replace(zst, np.nan, inplace=True)
 
-        results.to_csv(f'out/Period_{i + 1}_Badges_Sorted.csv', index=True)
+        results.to_csv(f'out/sorted/Period_{i + 1}_Badges_Sorted.csv', index=True)
 
 
 def score_assignments(unassigned_df, ranks):
@@ -287,9 +326,10 @@ def score_assignments(unassigned_df, ranks):
 @click.option('--list-badges', '-l', is_flag=True, required=False, help='List all badges scouts have selected, then exit.')
 @click.option('--prepare-data', '-p', is_flag=True, required=False, help='Clean badge signups using typo_dict, then exit.')
 @click.option('--stop-before-clear', '-b', is_flag=True, required=False, help='If cleaning, stops before clear. Otherwise No op.')
+@click.option('--recommendations', '-r', is_flag=True, required=False, help='Recommend how many sections to have for each badge, then exit.')
 @click.option('--seed', '-s', required=False, help='Pass in an int to be used as a random seed.')
 @click.argument('pref-file', type=click.Path(exists=True))
-def main(list_badges=None, prepare_data=None, stop_before_clear=None, seed=None, pref_file=None):
+def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None, recommendations=None, seed=None):
 
     if seed is None:
         seed = randrange(0, (2**32) - 1)
@@ -322,6 +362,10 @@ def main(list_badges=None, prepare_data=None, stop_before_clear=None, seed=None,
     clean_typos(pref, badges, clean_errors=not stop_before_clear)
 
     if prepare_data:
+        return
+
+    if recommendations:
+        make_recommendations(extract_periods(pref), badges)
         return
 
     assignments, unassigned_df, ranks = assign_scouts(pref, badges, seed)
