@@ -286,14 +286,19 @@ def assign_scouts(pref, badges, interested, seed):
     return assignments, unassigned_df, ranks
 
 
-def pad_set(s, length):
-    s = list(s)
-    for _ in range(int(length) - len(s)):
-        s.append(np.nan)
-    return s
+def export_periods(pref, badges, assignments, unassigned_df, interested):
+    def get_size(p, s):
+        return np.array(s).sum()
 
+    def get_ids(s):
+        return list(np.array(s).nonzero()[0])
 
-def export_periods(pref, badges, assignments, unassigned_df):
+    def pad_set(s, length):
+        s = list(s)
+        for _ in range(int(length) - len(s)):
+            s.append(np.nan)
+        return s
+
     if not exists('out/ids'):
         mkdir('out/ids')
     if not exists('out/sorted'):
@@ -302,10 +307,12 @@ def export_periods(pref, badges, assignments, unassigned_df):
         mkdir('out/id_match')
     for i in range(3):
         results = {}
-        max_size = max(badges[f'p{i+1} capacity'].max(), np.array(unassigned_df.iloc[:, i]).sum())
+        not_placed = unassigned_df.iloc[:, i] & interested.iloc[:, i]
+        max_size = max(badges[f'p{i+1} capacity'].max(), get_size(i, not_placed), get_size(i, interested))
         for badge, data in sorted(assignments[i].items()):
             results[badge] = pad_set(data[1], max_size)
-        results['Unassigned'] = list(np.array(unassigned_df.iloc[:, i]).nonzero()[0])
+        results['Unassigned'] = pad_set(get_ids(not_placed), max_size)
+        results['Not Interested'] = pad_set(get_ids(~interested.iloc[:, i]), max_size)  # Bitwise Not
 
         results = pd.DataFrame.from_dict(results)
         results.to_csv(f'out/ids/Period_{i+1}_Badges_ID.csv', index=False)
@@ -322,13 +329,14 @@ def export_periods(pref, badges, assignments, unassigned_df):
         results.to_csv(f'out/sorted/Period_{i + 1}_Badges_Sorted.csv', index=True)
 
 
-def score_assignments(unassigned_df, ranks):
+def score_assignments(unassigned_df, ranks, interested):
     score = 0
     for successes in ranks:
         score += 3 * successes[0]
         score += 2 * successes[1]
         score += 1 * successes[2]
     score -= 10 * np.sum(np.array(unassigned_df))
+    score += 10 * np.sum(np.array(1 - interested))
     return score
 
 
@@ -380,8 +388,8 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
         return
 
     assignments, unassigned_df, ranks = assign_scouts(pref, badges, interested, seed)
-    export_periods(pref, badges, assignments, unassigned_df)
-    print(f'score: {score_assignments(unassigned_df, ranks)}')
+    export_periods(pref, badges, assignments, unassigned_df, interested)
+    print(f'score: {score_assignments(unassigned_df, ranks, interested)}')
 
 
 if __name__ == '__main__':
