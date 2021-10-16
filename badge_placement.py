@@ -191,26 +191,35 @@ def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=No
             # If the scout has already been assigned, stop
             if not unassigned_df.iloc[row['id'], i]:
                 continue
-            for p_num, p_name in enumerate(['first', 'second', 'third']):
-                if assign(row[p_name]):
-                    ranks[i][p_num] += 1
-                    continue
+            # Careful not to roll this into a loop. Continue is necessary for outer loop.
+            if assign(row['first']):
+                ranks[i][0] += 1
+                continue
+            if assign(row['second']):
+                ranks[i][1] += 1
+                continue
+            if assign(row['third']):
+                ranks[i][2] += 1
+                continue
 
             # Attempt to use preferences listed for other badges
             if use_all_prefs:
-                all_prefs = []
+                # Define function to break out of nested loops
+                def go_ham():
+                    all_prefs = []
 
-                # Get other badges
-                for other_period in [(i + 1) % 3, (i + 2) % 3]:
-                    for other_p_name in ['first', 'second', 'third']:
-                        other_badge = periods[other_period].loc[row['id'], other_p_name]
-                        if other_badge is not np.nan:
-                            all_prefs.append(other_badge)
-                for badge in all_prefs:
-                    if assign(badge):
-                        # Hard-coded as third-preference equivalent
-                        ranks[i][1] += 1
-                        continue
+                    # Get other badges
+                    for other_period in [(i + 1) % 3, (i + 2) % 3]:
+                        for other_p_name in ['first', 'second', 'third']:
+                            other_badge = periods[other_period].loc[row['id'], other_p_name]
+                            if other_badge is not np.nan:
+                                all_prefs.append(other_badge)
+                    for badge in all_prefs:
+                        if assign(badge):
+                            # Hard-coded as third-preference equivalent
+                            ranks[i][1] += 1
+                            return
+                go_ham()
 
 
 def assign_scouts(pref, badges, seed):
@@ -254,11 +263,13 @@ def export_periods(pref, badges, assignments, unassigned_df):
         results.replace(dict(zip(pref[id_str], pref[name_str])), inplace=True)
         results.to_csv(f'out/Period_{i+1}_Badges.csv', index=False)
 
+        # Sort CSV and pull some shenanigans to sort np.nan
         zst = 'zzzzzzzz'
         results.replace(np.nan, zst, inplace=True)
         for col in results.columns:
             results.loc[:, col] = sorted(list(results.loc[:, col]))
         results.replace(zst, np.nan, inplace=True)
+
         results.to_csv(f'out/Period_{i + 1}_Badges_Sorted.csv', index=True)
 
 
