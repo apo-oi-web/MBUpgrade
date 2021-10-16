@@ -78,7 +78,8 @@ def list_courses(periods, badges, quiet=False):
                 courses_registered.add(row['third'])
         if not quiet:
             print('')  # New line for my sanity
-        wp("Courses that scouts signed up for\n=================================")
+        wp("Badges Offered and Resuested\n============================\n")
+        wp("Courses that scouts signed up for\n---------------------------------")
         for course in cs(courses_registered):
             if course and course is not np.nan:
                 wp('- ' + str(course))
@@ -88,19 +89,19 @@ def list_courses(periods, badges, quiet=False):
             courses_offered.add(row['p1'])
             courses_offered.add(row['p2'])
             courses_offered.add(row['p3'])
-        wp("\nCourses we're offering\n======================")
+        wp("\nCourses we're offering\n----------------------")
         for course in cs(courses_offered):
             if course and course is not np.nan:
                 wp('- ' + str(course))
 
-        wp("\nEmpty courses\n=============")
+        wp("\nEmpty courses\n-------------")
         for course in courses_offered:
             if course and (course not in cs(courses_registered)) and course is not np.nan:
                 wp('- ' + str(course))
 
         error_dict = {"": np.nan}
         with op('out/badge_dict.txt') as dict_fp:
-            wp("\nErroneous Courses\n=================")
+            wp("\nErroneous Courses\n-----------------")
             dict_fp.write('badge_typo_dict = {\n')
             for course in cs(courses_registered):
                 if course and (course not in courses_offered) and course is not np.nan:
@@ -346,13 +347,15 @@ def score_assignments(unassigned_df, ranks, interested):
 @click.option('--stop-before-clear', '-b', is_flag=True, help='If cleaning, stops before clear. Otherwise No op.')
 @click.option('--interest-after-clean', '-i', is_flag=True, help='Gauges scout interest after cleaning entries, not before.')
 @click.option('--recommendations', '-r', is_flag=True, help='Recommend how many sections to have for each badge, then exit.')
+@click.option('--tournament-rounds', '-t', required=False, help="If present, the number of assignments to compare.", type=int)
 @click.option('--seed', '-s', required=False, help='Pass in an int to be used as a random seed.', type=int)
 @click.argument('pref-file', type=click.Path(exists=True))
-def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None, interest_after_clean=None, recommendations=None, seed=None):
+def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None, interest_after_clean=None, recommendations=None, tournament_rounds=None, seed=None):
 
     if seed is None:
-        seed = randrange(0, (2**32) - 1)
+        seed = np.random.randint(0, 2**32 - 1, dtype=int)
     seed = int(seed)
+
 
     if version_info.major < 3:
         raise Exception (f'This script requires Python 3. You are using version {version}.')
@@ -390,9 +393,47 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
 
     if interest_after_clean:
         interested = get_interested_scouts(extract_periods(pref))
+
     assignments, unassigned_df, ranks = assign_scouts(pref, badges, interested, seed)
-    export_periods(pref, badges, assignments, unassigned_df, interested)
-    print(f'score: {score_assignments(unassigned_df, ranks, interested)}')
+    score = score_assignments(unassigned_df, ranks, interested)
+
+    if tournament_rounds is None:
+        export_periods(pref, badges, assignments, unassigned_df, interested)
+        print(f'score: {score}')
+    else:
+        np.random.seed(seed)  # Generate predictable seeds
+        scores = np.array([score])
+        best = {
+            'score': score,
+            'assignments': assignments,
+            'unassigned': unassigned_df,
+            'ranks': ranks,
+            'seed': seed,
+        }
+        print('\nStarting Tournament\n===================\n')
+        for r in range(tournament_rounds - 1):
+            if ((r + 2) % 10) is 0:
+                print(f'- Tournament Round {r+2} Max Score {scores.max()}')
+            round_seed = np.random.randint(0, 2**32 - 1, dtype=int)
+            assignments, unassigned_df, ranks = assign_scouts(pref, badges, interested, round_seed)
+            score = score_assignments(unassigned_df, ranks, interested)
+            scores = np.append(scores, score)
+            if score > best['score']:
+                best = {
+                    'score': score,
+                    'assignments': assignments,
+                    'unassigned': unassigned_df,
+                    'ranks': ranks,
+                    'seed': round_seed,
+                }
+        export_periods(pref, badges, best['assignments'], best['unassigned'], interested)
+        print(f'\nTournament Results\n------------------')
+        print(f'score: {best["score"]}')
+        print(f'mean score: {scores.mean()}')
+        print(f'median score: {np.median(scores)}')
+        print(f'winning seed: {best["seed"]}')
+
+
 
 
 if __name__ == '__main__':
