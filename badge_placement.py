@@ -161,7 +161,7 @@ def make_recommendations(periods, badges):
                 period_rec[badge][2] += 1/3
 
         recommendations = pd.DataFrame.from_dict(period_rec, orient='index', columns=['First Preference', 'First or Second', 'Any Preference'])
-        recommendations.to_csv(f'out/rec/Period_{i}_Rec.csv')
+        recommendations.to_csv(f'out/rec/Period_{i+1}_Rec.csv')
 
 
 def get_interested_scouts(periods):
@@ -432,8 +432,6 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
         print(f'mean score: {scores.mean()}')
         print(f'median score: {np.median(scores)}')
         print(f'winning seed: {best["seed"]}')
-
-
 
 
 if __name__ == '__main__':
