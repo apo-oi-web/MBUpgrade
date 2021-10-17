@@ -349,7 +349,8 @@ def export_periods(pref, badges, assignments, unassigned_df, interested, archive
         results = pd.DataFrame.from_dict(results)
         results_id = results.copy()
         results.to_csv(f'out/ids/Period_{i+1}_Badges_ID.csv', index=False)
-        results.replace(dict(zip(pref[id_str], pref[name_str])), inplace=True)
+        name_dict = dict(zip(pref[id_str], pref[name_str]))
+        results.replace(name_dict, inplace=True)
         results_matched = results.copy()
         results.to_csv(f'out/id_match/Period_{i+1}_Badges.csv', index=False)
 
@@ -367,9 +368,30 @@ def export_periods(pref, badges, assignments, unassigned_df, interested, archive
                 mkdir('out/archive')
             if not exists(f'out/archive/{time}-{score}'):
                 mkdir(f'out/archive/{time}-{score}')
-            results_id.to_csv(f'out/archive/{time}-{score}/Period_{i + 1}_Badges_ID.csv', index=False)
+            results_id.to_csv(f'out/archive/{time}-{score}/Period_{i+1}_Badges_ID.csv', index=False)
             results_matched.to_csv(f'out/archive/{time}-{score}/Period_{i+1}_Badges.csv', index=False)
-            results.to_csv(f'out/archive/{time}-{score}/Period_{i + 1}_Badges_Sorted.csv', index=False)
+            results.to_csv(f'out/archive/{time}-{score}/Period_{i+1}_Badges_Sorted.csv', index=False)
+
+    # Combine with primary spreadsheet
+    pref_placed = pref.copy()
+    placements = pd.DataFrame(np.full((len(pref.index), 3), np.nan))
+    placements[not_placed] = 'Unassigned'  # order matters
+    placements[~interested] = 'Not Interested'
+    for p, p_dict in enumerate(assignments):
+        for badge, roster in p_dict.items():
+            for scout in roster[1]:
+                if type(scout) is not int:  # filter empty badges
+                    continue
+                if type(placements.iloc[scout, p]) is str:
+                    print(f'Scout {name_dict[scout]} with id {scout} was placed into badge {badge} but had status {placements.iloc[scout, p]}')
+                placements.iloc[scout, p] = badge
+    pos = pref_placed.columns.get_loc(pref_col_names[0][0])
+    pref_placed.insert(loc=pos, column='First Period Badge', value=placements.iloc[:, 0])
+    pref_placed.insert(loc=pos+1, column='Second Period Badge', value=placements.iloc[:, 1])
+    pref_placed.insert(loc=pos+2, column='Third Period Badge', value=placements.iloc[:, 2])
+    pref_placed.to_csv(f'out/placements.csv', index=False)
+    if archive and (time is not None):
+        pref_placed.to_csv(f'out/archive/{time}-{score}/placements.csv', index=False)
 
 
 def score_assignments(unassigned_df, ranks, interested):
@@ -436,7 +458,7 @@ def print_receipt(badges, best, scores, ranks, seed, iac, time, interested, arch
           + ' ███  ███   ██   ██   ██    █  \n'
           + ' █▀█▄▄▀██   ██▀▀▀█▄   ██    █  \n'
           + ' █ ▀█▀ ██   ██    ██  ██    █  \n'
-          + '▄█▄ █ ▄██▄ ▄██▄▄▄█▀    ▀█▄▄▀')
+          + '▄█▄ ▀ ▄██▄ ▄██▄▄▄█▀    ▀█▄▄▀')
         wp('```', suppress_print=True)
     if archive:
         with op(f'out/receipts/{file_name}.md') as fp:
@@ -503,18 +525,19 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
 
     assignments, unassigned_df, ranks = assign_scouts(pref, badges, interested, seed)
     score = score_assignments(unassigned_df, ranks, interested)
-
+    best = {
+        'score': score,
+        'assignments': assignments,
+        'unassigned': unassigned_df,
+        'ranks': ranks,
+        'seed': seed,
+    }
     if tournament_rounds is None:
         export_periods(pref, badges, assignments, unassigned_df, interested, archive, time, score)
         print(f'score: {score}')
+        print_receipt(badges, best, [], ranks, seed, interest_after_clean, time, interested)
     else:
-        best = {
-            'score': score,
-            'assignments': assignments,
-            'unassigned': unassigned_df,
-            'ranks': ranks,
-            'seed': seed,
-        }
+
         best, scores = conduct_tournament(pref, badges, interested, best, tournament_rounds, time, archive)
         print_receipt(badges, best, scores, ranks, seed, interest_after_clean, time, interested)
 
