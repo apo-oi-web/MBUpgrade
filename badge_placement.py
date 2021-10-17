@@ -562,6 +562,7 @@ def export_periods(pref, badges, assignments, unassigned_df, interested, archive
     placements[not_placed] = 'Unassigned'  # order matters
     placements[~interested] = 'Not Interested'
     print('\nPlacement Warnings\n==================\n')
+    print('If the end of a line says anything other than "Unassigned", be concerned.')
     for p, p_dict in enumerate(assignments):
         for badge, roster in p_dict.items():
             for scout in roster[1]:
