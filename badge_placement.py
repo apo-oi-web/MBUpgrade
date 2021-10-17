@@ -38,7 +38,13 @@ def op(filename):
 
 
 def extract_period(pref, period):
-
+    """
+    Extracts all preferences from the pref file for the given period. Returns
+    result as a data frame.
+    :param pref: The scout badge preference data frame
+    :param period: The period to extract
+    :return: new data frame containing preferences for the given period
+    """
     period_pref = pref[[
         id_str,
         name_str,
@@ -55,18 +61,33 @@ def extract_period(pref, period):
 
 
 def extract_periods(pref):
+    """
+    Produces a list of preferences for each period
+    :param pref: The scout badge preference data frame
+    :return: A tuple of three data frames, each containing a period of
+    preferences
+    """
     return extract_period(pref, 1), extract_period(pref, 2), extract_period(pref, 3)
 
 
 def list_courses(periods, badges, quiet=False):
     """
-    Complies a list of the courses offered and the courses scouts
-    have signed up for, along with the difference between those
-    lists in both directions.
+    Complies a list of the courses offered and the courses scouts have signed up
+    for, along with the difference between those lists in both directions.
+    These lists are printed to a log file, out/badge_status.txt. The erroneous
+    badges are also printed to a file, out/badge_dict.txt, which the user can
+    edit and copy into typo_dicts.py to help clean data.
+    :param periods: A tuple of three data frames, each containing a period of
+    preferences
+    :param badges: A data frame containing the badges offered
+    :param quiet: A flag of whether or not to print output to console
+    :return: A dictionary with a key for every erroneous entry and every value
+    is np.nan.
     """
     courses_registered = set()
 
     with open('out/badge_status.txt', 'w' if exists('out/badge_status.txt') else 'x') as fp:
+        # Small function to write and print
         def wp(s):
             fp.write(s + '\n')
             if not quiet:
@@ -82,7 +103,7 @@ def list_courses(periods, badges, quiet=False):
         wp("Badges Offered and Resuested\n============================\n")
         wp("Courses that scouts signed up for\n---------------------------------")
         for course in cs(courses_registered):
-            if course and course is not np.nan:
+            if course and type(course) is str:
                 wp('- ' + str(course))
 
         courses_offered = {""}
@@ -92,12 +113,12 @@ def list_courses(periods, badges, quiet=False):
             courses_offered.add(row['p3'])
         wp("\nCourses we're offering\n----------------------")
         for course in cs(courses_offered):
-            if course and course is not np.nan:
+            if course and type(course) is str:
                 wp('- ' + str(course))
 
         wp("\nEmpty courses\n-------------")
         for course in courses_offered:
-            if course and (course not in cs(courses_registered)) and course is not np.nan:
+            if course and (course not in cs(courses_registered)) and type(course) is str:
                 wp('- ' + str(course))
 
         error_dict = {"": np.nan}
@@ -105,7 +126,7 @@ def list_courses(periods, badges, quiet=False):
             wp("\nErroneous Courses\n-----------------")
             dict_fp.write('badge_typo_dict = {\n')
             for course in cs(courses_registered):
-                if course and (course not in courses_offered) and course is not np.nan:
+                if course and (course not in courses_offered) and type(course) is str:
                     wp('- ' + str(course))
                     dict_fp.write(f' "{course}": "",\n')
                     error_dict[course] = np.nan
@@ -115,6 +136,15 @@ def list_courses(periods, badges, quiet=False):
 
 
 def clean_typos(pref, badges, clean_errors=False):
+    """
+    Modifies the pref data frame by performing substitutions as prescribed by
+    the typo_dicts.py file. If clean_errors is set,
+    :param pref: The scout badge preference data frame to modify
+    :param badges: The data frame of badges offered each period
+    :param clean_errors: A flag of whether or not to remove badges that do not
+    match the offered badges after the substitutions are made. This is set by
+    default (as is recommended), with the --stop-before-clear flag disabling it.
+    """
     pref.replace(typo_dicts.badge_typo_dict, inplace=True)
     error_dict = list_courses(extract_periods(pref), badges, quiet=clean_errors)
     if(clean_errors):
@@ -125,6 +155,15 @@ def clean_typos(pref, badges, clean_errors=False):
 
 
 def shift_badges_left(pref, badges):
+    """
+    Modifies preference data frame by shifting entries to the left if there are
+    any gaps. This function also attempts to remove duplicates. This function
+    has a few known bugs, such as leaving both gaps and duplicate functions if
+    all three preferences for a period and scout match. This should be mostly
+    inconsequential thanks to a few safties in the assignment algorithm.
+    :param pref: The scout badge preference data frame
+    :param badges: The data frame of badges offered each period
+    """
     col_names = list(chain.from_iterable(pref_col_names))
     for period in pref_col_names:
         for i in [0, 1]:
@@ -134,6 +173,13 @@ def shift_badges_left(pref, badges):
 
 
 def make_recommendations(periods, badges):
+    """
+    Tallies how many scouts have signed up for each badge for each period, then
+    prints these results to three files in out/rec/.
+    :param periods: An array of three data frames, each containing a period of
+    preferences
+    :param badges: The data frame of badges offered in each period
+    """
     if not exists('out/rec'):
         mkdir('out/rec')
     for i, period in enumerate(periods):
@@ -166,6 +212,16 @@ def make_recommendations(periods, badges):
 
 
 def get_interested_scouts(periods):
+    """
+    Returns a data frame with n rows and 3 columns to describe the preferences
+    of n scouts across 3 periods. Each entry will be True if a scout is
+    interested in taking classes for the period, as shown by listing at least
+    one preference. All entries with no preferences listed will be false.
+    :param periods: A collection of three data frames, each containing all scout
+    preferences for one period
+    :return: A boolean data frame where entry [r,c] is True if scout r listed at
+    least one preference in period c.
+    """
     def is_interested(row):
         return (row['first'] is not np.nan) or (row['second'] is not np.nan) or (row['third'] is not np.nan)
 
@@ -176,6 +232,14 @@ def get_interested_scouts(periods):
 
 
 def get_part_time_scouts(periods):
+    """
+    Returns a boolean series of part-time scouts. A scout is part-time if
+    they have listed any preferences for at least one period.
+    :param periods: A collection of three data frames, each containing all scout
+    preferences for one period
+    :return: A boolean Series where entry [n] is True if scout n listed no
+    preferences for at least one period
+    """
     p1_chosen = periods[0].loc[:, 'first'].isnull()
     p2_chosen = periods[1].loc[:, 'first'].isnull()
     p3_chosen = periods[2].loc[:, 'first'].isnull()
@@ -183,6 +247,16 @@ def get_part_time_scouts(periods):
 
 
 def get_picky_scouts(periods):
+    """
+    Returns a boolean series of picky scouts. A scout is picky if they have
+    listed fewer than three preferences for a given period. This is not a tight
+    or robust definition, but it should not create problems for the assignment
+    algorithm.
+    :param periods: A collection of three data frames, each containing all scout
+    preferences for one period
+    :return: A boolean Series where entry [n] is True if scout n listed fewer
+    than three preferences for any period
+    """
     p1_chosen_1 = periods[0].loc[:, 'second'].isnull()
     p1_chosen_2 = periods[0].loc[:, 'third'].isnull()
     p2_chosen_1 = periods[1].loc[:, 'second'].isnull()
@@ -193,10 +267,44 @@ def get_picky_scouts(periods):
 
 
 def get_missed_scouts(unassigned_df):
+    """
+    Returns a boolean series of scouts that are currently unassigned. A scout is
+    unassigned if they have not been placed into a badge for at least one
+    period.
+    :param unassigned_df: A boolean data frame of all scouts who have not yet
+    been assigned to a badge. Entry [r,c] is True if scout r has not been placed
+    into a badge for period c.
+    :return: A boolean series of scouts that are currently unassigned. A scout
+    is unassigned if they have not been placed into a badge for at least one
+    period.
+    """
     return unassigned_df.iloc[:, 0] | unassigned_df.iloc[:, 1] | unassigned_df.iloc[:, 2]
 
 
 def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=None, use_all_prefs=False):
+    """
+    Attempts to assign scouts with the given ids to badges in every period. If
+    no ids are provided, the default is to use ids of all scouts who have not
+    yet been assigned to badges.
+    :param periods: A collection of three data frames, each containing all scout
+    preferences for one period
+    :param assignments: A collection of three dictionaries, where each key is a
+    badge in the corresponding period, and the value is a tuple where the first
+    item is the badge capacity and the second item is a set of ids for scouts
+    signed up to take it.
+    :param unassigned_df: A boolean data frame of all scouts who have not yet
+    been assigned to a badge. Entry [r,c] is True if scout r has not been placed
+    into a badge for period c.
+    :param ranks: An array where each entry represents the placements for a
+    period. This representation is a sub-array of three entries, one to count
+    scouts who got their first choice, one for second, and one for other.
+    :param seed: The random seed that should be used to shuffle the data frame
+    of chosen scouts
+    :param ids: A series of ids of scouts to attempt to assign.
+    :param use_all_prefs: A flag for whether or not to attempt to use scout
+    preferences for all periods to attempt to assign the current period. This
+    can help remedy erroneous data entry and can better utilize class spaces.
+    """
     def is_room(tup):
         return len(tup[1]) < tup[0]
 
@@ -204,6 +312,14 @@ def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=No
         return (r['first'] is not np.nan) or (r['second'] is not np.nan) or (r['third'] is not np.nan)
 
     def assign(badge):
+        """
+        Ineternal function to attempt to assign the active scout to the given
+        badge. Removes that badge from the scout's preferences on success so
+        that the scout is not assigned to the same badge more than once.
+        :param badge: A string representing the badge to attempt to assign the
+        scout to.
+        :return: True if the assignment was successful, false otherwise.
+        """
         # If the badge is offered this period
         if badge in assignments[i].keys():
             # If there is a preference and room
@@ -221,7 +337,7 @@ def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=No
         return False
 
     # Randomize which period goes first
-    for i in pd.Series([0, 1, 2]).sample(frac=1):
+    for i in pd.Series([0, 1, 2]).sample(frac=1, random_state=seed):
         # If there are ids to prioritize
         if ids is not None:
             records_to_select = ids & unassigned_df.iloc[:, i]
@@ -250,6 +366,15 @@ def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=No
             if use_all_prefs:
                 # Define function to break out of nested loops
                 def go_ham():
+                    """
+                    Internal function that uses all of a scout's listed
+                    preferences to attempt to assign them to a badge for the
+                    active period. This function will only be called if the
+                    use_all_prefs flag is true and if badge assignment using
+                    preferences for this period has failed.
+                    :return: None. This function returns to break out of nested
+                    loops to multiple assignments of the same scout.
+                    """
                     all_prefs = []
 
                     # Get other badges
@@ -267,6 +392,21 @@ def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=No
 
 
 def assign_scouts(pref, badges, interested, seed):
+    """
+    Attempts to assign scouts into given badges using preferences to badges in
+    the badges data frame. Attempts different assignments, starting with part-
+    time scouts (see get_part_time_scouts()), then picky scouts (see get_picky_
+    scouts()), then all scouts, then all scouts using all preferences.
+    :param pref: The data frame of scout badge preferences
+    :param badges: The data frame of badges offered in each period
+    :param interested: A boolean data frame of interested scouts. Entry [r,c] is
+    True if scout r listed at least one preference in period c.
+    :param seed: The random seed to be used for shuffling the data frame of
+    chosen scouts.
+    :return: The data structure of assignments, a boolean data frame of
+    unassigned scouts, and the list of ranks for each period. See
+    assign_scouts_by_id documentation for details.
+    """
     periods = extract_periods(pref)
     assignments = [{}, {}, {}]
     unassigned_df = interested.copy()
@@ -284,12 +424,31 @@ def assign_scouts(pref, badges, interested, seed):
     assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=get_picky_scouts(periods))
     # assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, get_missed_scouts(unassigned_df), use_all_prefs=True)
     assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed)
-    # assign_scouts_by_id(periods, assignments, unassigned_df, unassigned_df, ranks, seed, use_all_prefs=True)
+    assign_scouts_by_id(periods, assignments, unassigned_df, unassigned_df, ranks, seed, use_all_prefs=True)
     return assignments, unassigned_df, ranks
 
 
 def conduct_tournament(pref, badges, interested, best, tournament_rounds, time, archive=False):
-    np.random.seed(best['seed'])  # Generate predictable seeds
+    """
+    Conducts a tournament by repeatedly attempting to assign scouts using
+    different procedurally-generated random seeds. Each assignment is scored,
+    and the assignment with the best score is kept. Returns the best
+    configuration and an array of all scores.
+    :param pref: The data frame of all scout badge preferences
+    :param badges: The data frame of badges offered in each period
+    :param interested: A boolean data frame of interested scouts. Entry [r,c] is
+    True if scout r listed at least one preference in period c.
+    :param best: A dictionary of statistics about the best configuration found
+    so far.
+    :param tournament_rounds: An int representing the number of rounds to iterate
+    through.
+    :param time: The program's start time, used for logging.
+    :param archive: A flag of whether or not to archive the results to a folder
+    in out/archive/.
+    :return: The statistics of the best assignment found, and an array of all
+    tournamnet scores.
+    """
+    np.random.seed(best['seed'])  # Generate predictable seeds based on prime seed
     scores = np.array([best['score']])
     print('\nStarting Tournament\n===================\n')
     for r in range(tournament_rounds - 1):
@@ -318,6 +477,31 @@ def conduct_tournament(pref, badges, interested, best, tournament_rounds, time, 
 
 
 def export_periods(pref, badges, assignments, unassigned_df, interested, archive=False, time=None, score=None):
+    """
+    Exports the given assignments to many CSVs. One CSV is placements.csv, which
+    adds placement data to the original preference file. The others are files
+    that show all badge assignments for a period, and these files are grouped in
+    threes, one for each period. There are three flavors of these files: ids,
+    names, and alphabetized names. These files will be exported into different
+    folders in out/. If the archive flag is set, these files will also be
+    exported to a folder in out/archive/.
+    :param pref: The data frame of all scout badge preferences
+    :param badges: The data frame of badges offered in each period
+    :param assignments: A collection of three dictionaries, where each key is a
+    badge in the corresponding period, and the value is a tuple where the first
+    item is the badge capacity and the second item is a set of ids for scouts
+    signed up to take it.
+    :param unassigned_df: A boolean data frame of all scouts who have not yet
+    been assigned to a badge. Entry [r,c] is True if scout r has not been placed
+    into a badge for period c.
+    :param interested: A boolean data frame of interested scouts. Entry [r,c] is
+    True if scout r listed at least one preference in period c.
+    :param archive: A flag of whether or not to archive the results to a folder
+    in out/archive/.
+    :param time: The program's start time, used for logging and file names to
+    keep logs distinct and chronologically sorted.
+    :param score: The score of the assignments being exported.
+    """
     def get_size(p, s):
         return np.array(s).sum()
 
@@ -397,6 +581,20 @@ def export_periods(pref, badges, assignments, unassigned_df, interested, archive
 
 
 def score_assignments(unassigned_df, ranks, interested):
+    """
+    Produces a numeric representation for how preferable an assignment is.
+    Higher preferences are rewarded, and failing to assign scouts who were
+    interested in being assigned is penalized.
+    :param unassigned_df: A boolean data frame of all scouts who have not yet been
+    assigned to a badge. Entry [r,c] is True if scout r has not been placed into
+    a badge for period c.
+    :param ranks: An array where each entry represents the placements for a
+    period. This representation is a sub-array of three entries, one to count
+    scouts who got their first choice, one for second, and one for other.
+    :param interested: A boolean data frame of interested scouts. Entry [r,c] is
+    True if scout r listed at least one preference in period c.
+    :return: An int representing how preferable an assignment is.
+    """
     score = 0
     for successes in ranks:
         score += 3 * successes[0]
@@ -408,6 +606,30 @@ def score_assignments(unassigned_df, ranks, interested):
 
 
 def print_receipt(badges, best, scores, ranks, seed, iac, time, interested, archive=False, quiet=False):
+    """
+    Prints a log of this run to console and to a file in out/receipts/. This
+    receipt includes details on the best score for this run, how many
+    preferences were respected, how many scouts were not assigned, and so on.
+    :param badges: The data frame of badges offered in each period
+    :param best: The statistics of the best assignment found this run.
+    :param scores: An array of all scores achieved during a tournament, or an
+    empty list if there was no tournament.
+    :param ranks: An array where each entry represents the placements for a
+    period. This representation is a sub-array of three entries, one to count
+    scouts who got their first choice, one for second, and one for other.
+    :param seed: The prime seed used to generate all other seeds this run.
+    Entering the prime seed with the -s flag should in theory allow a run to be
+    duplicated deterministically.
+    :param iac: A copied value from the --interest-after-clear flag. Must be
+    logged for any chance of reproducability.
+    :param time: The program's start time, used for logging and file names to
+    keep logs distinct and chronologically sorted.
+    :param interested: A boolean data frame of interested scouts. Entry [r,c] is
+    True if scout r listed at least one preference in period c.
+    :param archive: A flag of whether or not to archive the results to a folder
+    in out/archive/.
+    :param quiet: A flag for whether or not to suppress printing to console.
+    """
     fp_archive = None
     tst = int(time.timestamp())
     file_name = f'{tst}-{best["score"]}'
@@ -420,6 +642,11 @@ def print_receipt(badges, best, scores, ranks, seed, iac, time, interested, arch
             fp_archive.write(f'{s}\n')
 
     def do_the_thing():
+        """
+        Internal function to help with the conditional existence of file
+        pointers. Produces a log file with the given settings from the outer
+        function.
+        """
         if not exists('out/receipts'):
             mkdir('out/receipts')
         wp(f'MBU Sorting Script Receipt\n==========================\n')
@@ -482,11 +709,41 @@ def print_receipt(badges, best, scores, ranks, seed, iac, time, interested, arch
 @click.option('--seed', '-s', required=False, help='Pass in an int to be used as a random seed.', type=int)
 @click.argument('pref-file', type=click.Path(exists=True))
 def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None, interest_after_clean=None, archive=None, recommendations=None, tournament_rounds=None, seed=None):
-
+    """
+    Main function to execute this program. All parameters are flags set using
+    the click package. Flags and arguments are described thus:
+    :param pref_file: An argument for the csv file containing all scout badge
+    preferences.
+    :param list_badges: A flag that, if set, causes the program to list all
+    badges offered in the badge CSV, requested in the preference CSV, and the
+    set differences between them. This does not use the alias dictionary from
+    the external file.
+    :param prepare_data: A flag that, if set, causes the program to terminate
+    after the preference CSV has been cleaned. The resuling file can be found at
+    out/clean.csv.
+    :param stop_before_clear: A flag that, if set, prevents the preference CSV
+    from being cleaned of values not found in the badges offered.
+    :param interest_after_clean: A flag that, if set, delays gauging scout
+    interest until after the preference CSV has been cleaned. The recommended
+    setting for this flag is true. This helps ignore data for badges not
+    offered.
+    :param archive: A flag that, if set, saves assignments from this run in an
+    archive folder. This prevents the assignment from getting overwritten by
+    another run.
+    :param recommendations: A flag that, if set, causes the program to produce
+    recommendations in the out/rec/ folder, then terminate. These
+    recommendations show how many souts signed up for each badge, and they can
+    be used to help decide which badges may warrant additional sections.
+    :param tournament_rounds: An option for how many rounds to hold in the
+    tournament of competing assignments. If not set, only one run is conducted.
+    :param seed: An option for a prime seed to use for this run. Must be an int
+    between 0 and 2^32 - 1
+    """
     time = datetime.now()
     if seed is None:
         seed = np.random.randint(0, 2**32 - 1, dtype=int)
     seed = int(seed)
+    np.random.seed(seed)
 
     if version_info.major < 3:
         raise Exception (f'This script requires Python 3. You are using version {version}.')
