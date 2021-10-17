@@ -220,7 +220,8 @@ def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=No
                 return True
         return False
 
-    for i in range(len(periods)):
+    # Randomize which period goes first
+    for i in pd.Series([0, 1, 2]).sample(frac=1):
         # If there are ids to prioritize
         if ids is not None:
             records_to_select = ids & unassigned_df.iloc[:, i]
@@ -281,10 +282,38 @@ def assign_scouts(pref, badges, interested, seed):
 
     assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=get_part_time_scouts(periods))
     assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=get_picky_scouts(periods))
-    # assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, get_missed_scouts(periods, unassigned), use_all_prefs=True)
+    # assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, get_missed_scouts(unassigned_df), use_all_prefs=True)
     assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed)
-    # assign_scouts_by_id(periods, assignments, unassigned, unassigned_df, ranks, seed, use_all_prefs=True)
+    # assign_scouts_by_id(periods, assignments, unassigned_df, unassigned_df, ranks, seed, use_all_prefs=True)
     return assignments, unassigned_df, ranks
+
+
+def conduct_tournament(pref, badges, interested, best, tournament_rounds):
+    np.random.seed(best['seed'])  # Generate predictable seeds
+    scores = np.array([best['score']])
+    print('\nStarting Tournament\n===================\n')
+    for r in range(tournament_rounds - 1):
+        if ((r + 2) % 10) is 0:
+            print(f'- Tournament Round {r + 2} Top Score {scores.max()}')
+        round_seed = np.random.randint(0, 2 ** 32 - 1, dtype=int)
+        assignments, unassigned_df, ranks = assign_scouts(pref, badges, interested, round_seed)
+        score = score_assignments(unassigned_df, ranks, interested)
+        scores = np.append(scores, score)
+        if score > best['score']:
+            best = {
+                'score': score,
+                'assignments': assignments,
+                'unassigned': unassigned_df,
+                'ranks': ranks,
+                'seed': round_seed,
+            }
+    export_periods(pref, badges, best['assignments'], best['unassigned'], interested)
+    print(f'\nTournament Results\n------------------')
+    print(f'score: {best["score"]}')
+    print(f'mean score: {scores.mean()}')
+    print(f'median score: {np.median(scores)}')
+    print(f'low score: {scores.min()}')
+    print(f'winning seed: {best["seed"]}')
 
 
 def export_periods(pref, badges, assignments, unassigned_df, interested):
@@ -356,7 +385,6 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
         seed = np.random.randint(0, 2**32 - 1, dtype=int)
     seed = int(seed)
 
-
     if version_info.major < 3:
         raise Exception (f'This script requires Python 3. You are using version {version}.')
 
@@ -401,8 +429,6 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
         export_periods(pref, badges, assignments, unassigned_df, interested)
         print(f'score: {score}')
     else:
-        np.random.seed(seed)  # Generate predictable seeds
-        scores = np.array([score])
         best = {
             'score': score,
             'assignments': assignments,
@@ -410,28 +436,7 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
             'ranks': ranks,
             'seed': seed,
         }
-        print('\nStarting Tournament\n===================\n')
-        for r in range(tournament_rounds - 1):
-            if ((r + 2) % 10) is 0:
-                print(f'- Tournament Round {r+2} Max Score {scores.max()}')
-            round_seed = np.random.randint(0, 2**32 - 1, dtype=int)
-            assignments, unassigned_df, ranks = assign_scouts(pref, badges, interested, round_seed)
-            score = score_assignments(unassigned_df, ranks, interested)
-            scores = np.append(scores, score)
-            if score > best['score']:
-                best = {
-                    'score': score,
-                    'assignments': assignments,
-                    'unassigned': unassigned_df,
-                    'ranks': ranks,
-                    'seed': round_seed,
-                }
-        export_periods(pref, badges, best['assignments'], best['unassigned'], interested)
-        print(f'\nTournament Results\n------------------')
-        print(f'score: {best["score"]}')
-        print(f'mean score: {scores.mean()}')
-        print(f'median score: {np.median(scores)}')
-        print(f'winning seed: {best["seed"]}')
+        conduct_tournament(pref, badges, interested, best, tournament_rounds)
 
 
 if __name__ == '__main__':
