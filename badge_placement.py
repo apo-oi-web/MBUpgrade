@@ -424,7 +424,7 @@ def assign_scouts(pref, badges, interested, seed):
     assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=get_picky_scouts(periods))
     # assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, get_missed_scouts(unassigned_df), use_all_prefs=True)
     assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed)
-    assign_scouts_by_id(periods, assignments, unassigned_df, unassigned_df, ranks, seed, use_all_prefs=True)
+    assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, use_all_prefs=True)
     return assignments, unassigned_df, ranks
 
 
@@ -743,7 +743,7 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
     if seed is None:
         seed = np.random.randint(0, 2**32 - 1, dtype=int)
     seed = int(seed)
-    np.random.seed(seed)
+    # np.random.seed(seed)
 
     if version_info.major < 3:
         raise Exception (f'This script requires Python 3. You are using version {version}.')
