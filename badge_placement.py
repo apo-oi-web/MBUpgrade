@@ -340,15 +340,17 @@ def export_periods(pref, badges, assignments, unassigned_df, interested, archive
     for i in range(3):
         results = {}
         not_placed = unassigned_df.iloc[:, i] & interested.iloc[:, i]
-        max_size = max(badges[f'p{i+1} capacity'].max(), get_size(i, not_placed), get_size(i, interested))
+        max_size = max(badges[f'p{i+1} capacity'].max(), get_size(i, not_placed), get_size(i, ~interested.iloc[:, i]))
         for badge, data in sorted(assignments[i].items()):
             results[badge] = pad_set(data[1], max_size)
         results['Unassigned'] = pad_set(get_ids(not_placed), max_size)
         results['Not Interested'] = pad_set(get_ids(~interested.iloc[:, i]), max_size)  # Bitwise Not
 
         results = pd.DataFrame.from_dict(results)
+        results_id = results.copy()
         results.to_csv(f'out/ids/Period_{i+1}_Badges_ID.csv', index=False)
         results.replace(dict(zip(pref[id_str], pref[name_str])), inplace=True)
+        results_matched = results.copy()
         results.to_csv(f'out/id_match/Period_{i+1}_Badges.csv', index=False)
 
         # Sort CSV and pull some shenanigans to sort np.nan
@@ -358,16 +360,16 @@ def export_periods(pref, badges, assignments, unassigned_df, interested, archive
             results.loc[:, col] = sorted(list(results.loc[:, col]))
         results.replace(zst, np.nan, inplace=True)
 
-        results.to_csv(f'out/sorted/Period_{i + 1}_Badges_Sorted.csv', index=True)
+        results.to_csv(f'out/sorted/Period_{i + 1}_Badges_Sorted.csv', index=False)
 
         if archive and (time is not None):
             if not exists('out/archive'):
                 mkdir('out/archive')
             if not exists(f'out/archive/{time}-{score}'):
                 mkdir(f'out/archive/{time}-{score}')
-            results.to_csv(f'out/archive/{time}-{score}/Period_{i + 1}_Badges_ID.csv', index=False)
-            results.to_csv(f'out/archive/{time}-{score}/Period_{i+1}_Badges.csv', index=False)
-            results.to_csv(f'out/archive/{time}-{score}/Period_{i + 1}_Badges_Sorted.csv', index=True)
+            results_id.to_csv(f'out/archive/{time}-{score}/Period_{i + 1}_Badges_ID.csv', index=False)
+            results_matched.to_csv(f'out/archive/{time}-{score}/Period_{i+1}_Badges.csv', index=False)
+            results.to_csv(f'out/archive/{time}-{score}/Period_{i + 1}_Badges_Sorted.csv', index=False)
 
 
 def score_assignments(unassigned_df, ranks, interested):
@@ -381,9 +383,10 @@ def score_assignments(unassigned_df, ranks, interested):
     return score
 
 
-def print_receipt(badges, best, scores, ranks, seed, iac, time, archive=False, quiet=False):
+def print_receipt(badges, best, scores, ranks, seed, iac, time, interested, archive=False, quiet=False):
     fp_archive = None
     tst = int(time.timestamp())
+    file_name = f'{tst}-{best["score"]}'
 
     def wp(s, suppress_print=False):
         fp.write(f'{s}\n')
@@ -397,14 +400,20 @@ def print_receipt(badges, best, scores, ranks, seed, iac, time, archive=False, q
             mkdir('out/receipts')
         wp(f'MBU Sorting Script Receipt\n==========================\n')
         wp(f'Start Time: {time}  ')
-        wp(f'Final Score: {best["score"]}  ')
+        wp(f'End Time: {datetime.now()}  ')
+        wp(f'File: {file_name}  ')
+        wp(f'\nFinal Score: __{best["score"]}__  ')
         wp(f'Prime Seed: {seed}  ')
         wp(f'Interest After Clean: {iac}  ')
         wp(f'\n## Preference Statistics\n')
-        wp(f'| Period | First Pref | Second Pref | Third+ Pref | Sum |')
-        wp(f'| ------ | ---------- | ----------- | ----------- | --- |')
+        wp(f'| Period | First Pref | Second Pref | Third+ Pref | Sum | Unassigned | Not Interested | Total |')
+        wp(f'| :----- | ---------: | ----------: | ----------: | --: | ---------: | -------------: | ----: |')
         for i, p in enumerate(ranks):
-            wp(f'| {i+1:6} | {p[0]:10d} | {p[1]:11d} | {p[2]:11d} | {p[0]+p[1]+p[2]:3d} |')
+            not_interested = np.sum(np.array(1 - interested)[:, i])
+            not_assigned = np.sum(np.array(best['unassigned'] & interested)[:, i])
+            s = p[0] + p[1] + p[2] + not_interested + not_assigned
+            wp(f'| {i+1:6} | {p[0]:10d} | {p[1]:11d} | {p[2]:11d} | {p[0]+p[1]+p[2]:3d} | {not_assigned:10d} | {not_interested:14d} | {s:5d} |')
+        wp('\nNote: Numbers may be inconsistent with aliased and sorted spreadsheets if there are blank names.\n')
         if len(scores) > 1:
             wp(f'\n## Tournament Results\n')
             for i in range(9, len(scores), 10):
@@ -418,16 +427,23 @@ def print_receipt(badges, best, scores, ranks, seed, iac, time, archive=False, q
             wp(f'- Winning Seed: {best["seed"]}')
         wp(f'\n## Class Size Inputs\n')
         wp(f'| Period 1             | Size | Period 2             | Size | Period 3             | Size |')
-        wp(f'| -------------------- | ---- | -------------------- | ---- | -------------------- | ---- |')
+        wp(f'| :------------------- | ---: | :------------------- | ---: | :------------------- | ---: |')
         for index, row in badges.iterrows():
             wp(f'| {row["p1"]:20} | {row["p1 capacity"]:4d} | {row["p2"]:20} | {row["p2 capacity"]:4d} | {row["p3"]:20} | {row["p3 capacity"]:4d} |')
-
+        wp('')  # New Line
+        wp('```txt', suppress_print=True)
+        wp(f'▀██    ██▀ ▀██▀▀█▄   ▀██▀  ▀█▀  \n'
+          + ' ███  ███   ██   ██   ██    █  \n'
+          + ' █▀█▄▄▀██   ██▀▀▀█▄   ██    █  \n'
+          + ' █ ▀█▀ ██   ██    ██  ██    █  \n'
+          + '▄█▄ █ ▄██▄ ▄██▄▄▄█▀    ▀█▄▄▀')
+        wp('```', suppress_print=True)
     if archive:
-        with op(f'out/receipts/{tst}-{best["score"]}.md') as fp:
-            with op(f'out/archive/{tst}-{best["score"]}/{tst}-{best["score"]}.md') as fp_archive:
+        with op(f'out/receipts/{file_name}.md') as fp:
+            with op(f'out/archive/{file_name}/{file_name}.md') as fp_archive:
                 do_the_thing()
     else:
-        with op(f'out/receipts/{tst}-{best["score"]}.md') as fp:
+        with op(f'out/receipts/{file_name}.md') as fp:
             do_the_thing()
 
 
@@ -500,7 +516,7 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
             'seed': seed,
         }
         best, scores = conduct_tournament(pref, badges, interested, best, tournament_rounds, time, archive)
-        print_receipt(badges, best, scores, ranks, seed, interest_after_clean, time)
+        print_receipt(badges, best, scores, ranks, seed, interest_after_clean, time, interested)
 
 
 if __name__ == '__main__':
