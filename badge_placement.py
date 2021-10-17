@@ -288,7 +288,7 @@ def assign_scouts(pref, badges, interested, seed):
     return assignments, unassigned_df, ranks
 
 
-def conduct_tournament(pref, badges, interested, best, tournament_rounds):
+def conduct_tournament(pref, badges, interested, best, tournament_rounds, time, archive=False):
     np.random.seed(best['seed'])  # Generate predictable seeds
     scores = np.array([best['score']])
     print('\nStarting Tournament\n===================\n')
@@ -307,7 +307,7 @@ def conduct_tournament(pref, badges, interested, best, tournament_rounds):
                 'ranks': ranks,
                 'seed': round_seed,
             }
-    export_periods(pref, badges, best['assignments'], best['unassigned'], interested)
+    export_periods(pref, badges, best['assignments'], best['unassigned'], interested, archive, time, best['score'])
     print(f'\nTournament Results\n------------------')
     print(f'score: {best["score"]}')
     print(f'mean score: {scores.mean()}')
@@ -317,7 +317,7 @@ def conduct_tournament(pref, badges, interested, best, tournament_rounds):
     return best, scores
 
 
-def export_periods(pref, badges, assignments, unassigned_df, interested):
+def export_periods(pref, badges, assignments, unassigned_df, interested, archive=False, time=None, score=None):
     def get_size(p, s):
         return np.array(s).sum()
 
@@ -330,6 +330,7 @@ def export_periods(pref, badges, assignments, unassigned_df, interested):
             s.append(np.nan)
         return s
 
+    time = int(time.timestamp())
     if not exists('out/ids'):
         mkdir('out/ids')
     if not exists('out/sorted'):
@@ -359,6 +360,15 @@ def export_periods(pref, badges, assignments, unassigned_df, interested):
 
         results.to_csv(f'out/sorted/Period_{i + 1}_Badges_Sorted.csv', index=True)
 
+        if archive and (time is not None):
+            if not exists('out/archive'):
+                mkdir('out/archive')
+            if not exists(f'out/archive/{time}-{score}'):
+                mkdir(f'out/archive/{time}-{score}')
+            results.to_csv(f'out/archive/{time}-{score}/Period_{i + 1}_Badges_ID.csv', index=False)
+            results.to_csv(f'out/archive/{time}-{score}/Period_{i+1}_Badges.csv', index=False)
+            results.to_csv(f'out/archive/{time}-{score}/Period_{i + 1}_Badges_Sorted.csv', index=True)
+
 
 def score_assignments(unassigned_df, ranks, interested):
     score = 0
@@ -371,17 +381,22 @@ def score_assignments(unassigned_df, ranks, interested):
     return score
 
 
-def print_receipt(badges, best, scores, ranks, seed, iac, quiet=False):
-    def wp(s):
-        fp.write(f'{s}\n')
-        if not quiet:
-            print(s)
+def print_receipt(badges, best, scores, ranks, seed, iac, time, archive=False, quiet=False):
+    fp_archive = None
+    tst = int(time.timestamp())
 
-    if not exists('out/receipts'):
-        mkdir('out/receipts')
-    with op(f'out/receipts/{int(datetime.utcnow().timestamp())}-{best["score"]}.md') as fp:
+    def wp(s, suppress_print=False):
+        fp.write(f'{s}\n')
+        if not quiet and not suppress_print:
+            print(s)
+        if fp_archive is not None:
+            fp_archive.write(f'{s}\n')
+
+    def do_the_thing():
+        if not exists('out/receipts'):
+            mkdir('out/receipts')
         wp(f'MBU Sorting Script Receipt\n==========================\n')
-        wp(f'Time: {datetime.now()}  ')
+        wp(f'Start Time: {time}  ')
         wp(f'Final Score: {best["score"]}  ')
         wp(f'Prime Seed: {seed}  ')
         wp(f'Interest After Clean: {iac}  ')
@@ -406,8 +421,14 @@ def print_receipt(badges, best, scores, ranks, seed, iac, quiet=False):
         wp(f'| -------------------- | ---- | -------------------- | ---- | -------------------- | ---- |')
         for index, row in badges.iterrows():
             wp(f'| {row["p1"]:20} | {row["p1 capacity"]:4d} | {row["p2"]:20} | {row["p2 capacity"]:4d} | {row["p3"]:20} | {row["p3 capacity"]:4d} |')
-        fp.write('\n')
 
+    if archive:
+        with op(f'out/receipts/{tst}-{best["score"]}.md') as fp:
+            with op(f'out/archive/{tst}-{best["score"]}/{tst}-{best["score"]}.md') as fp_archive:
+                do_the_thing()
+    else:
+        with op(f'out/receipts/{tst}-{best["score"]}.md') as fp:
+            do_the_thing()
 
 
 @click.command()
@@ -415,12 +436,14 @@ def print_receipt(badges, best, scores, ranks, seed, iac, quiet=False):
 @click.option('--prepare-data', '-p', is_flag=True, help='Clean badge signups using typo_dict, then exit.')
 @click.option('--stop-before-clear', '-b', is_flag=True, help='If cleaning, stops before clear. Otherwise No op.')
 @click.option('--interest-after-clean', '-i', is_flag=True, help='Gauges scout interest after cleaning entries, not before.')
+@click.option('--archive', '-a', is_flag=True, help="Archive all CSVs from this run.")
 @click.option('--recommendations', '-r', is_flag=True, help='Recommend how many sections to have for each badge, then exit.')
 @click.option('--tournament-rounds', '-t', required=False, help="If present, the number of assignments to compare.", type=int)
 @click.option('--seed', '-s', required=False, help='Pass in an int to be used as a random seed.', type=int)
 @click.argument('pref-file', type=click.Path(exists=True))
-def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None, interest_after_clean=None, recommendations=None, tournament_rounds=None, seed=None):
+def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None, interest_after_clean=None, archive=None, recommendations=None, tournament_rounds=None, seed=None):
 
+    time = datetime.now()
     if seed is None:
         seed = np.random.randint(0, 2**32 - 1, dtype=int)
     seed = int(seed)
@@ -466,7 +489,7 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
     score = score_assignments(unassigned_df, ranks, interested)
 
     if tournament_rounds is None:
-        export_periods(pref, badges, assignments, unassigned_df, interested)
+        export_periods(pref, badges, assignments, unassigned_df, interested, archive, time, score)
         print(f'score: {score}')
     else:
         best = {
@@ -476,8 +499,8 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
             'ranks': ranks,
             'seed': seed,
         }
-        best, scores = conduct_tournament(pref, badges, interested, best, tournament_rounds)
-        print_receipt(badges, best, scores, ranks, seed, interest_after_clean)
+        best, scores = conduct_tournament(pref, badges, interested, best, tournament_rounds, time, archive)
+        print_receipt(badges, best, scores, ranks, seed, interest_after_clean, time)
 
 
 if __name__ == '__main__':
