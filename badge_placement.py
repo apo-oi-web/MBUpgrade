@@ -192,7 +192,7 @@ def get_picky_scouts(periods):
 
 
 def get_missed_scouts(unassigned_df):
-    return unassigned_df[:, 0] | unassigned_df[:, 1] | unassigned_df[:, 2]
+    return unassigned_df.iloc[:, 0] | unassigned_df.iloc[:, 1] | unassigned_df.iloc[:, 2]
 
 
 def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=None, use_all_prefs=False):
@@ -216,7 +216,6 @@ def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=No
                     for k in ['first', 'second', 'third']:
                         if periods[j].loc[row['id'], k] is badge:
                             periods[j].loc[row['id'], k] = np.nan
-
                 return True
         return False
 
@@ -235,7 +234,7 @@ def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=No
             # If the scout has already been assigned, stop
             if not unassigned_df.iloc[row['id'], i]:
                 continue
-            # Careful not to roll this into a loop. Continue is necessary for outer loop.
+            # Careful not to roll this into a loop. _Continue_ is necessary for outer loop.
             if assign(row['first']):
                 ranks[i][0] += 1
                 continue
