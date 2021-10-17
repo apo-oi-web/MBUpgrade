@@ -7,6 +7,7 @@ from itertools import chain
 import numpy as np
 from sys import version_info, version
 from random import randrange
+from datetime import datetime
 
 name_str = 'Name'
 # id_str = 'Reference #'
@@ -313,6 +314,7 @@ def conduct_tournament(pref, badges, interested, best, tournament_rounds):
     print(f'median score: {np.median(scores)}')
     print(f'low score: {scores.min()}')
     print(f'winning seed: {best["seed"]}')
+    return best, scores
 
 
 def export_periods(pref, badges, assignments, unassigned_df, interested):
@@ -367,6 +369,45 @@ def score_assignments(unassigned_df, ranks, interested):
     score -= 10 * np.sum(np.array(unassigned_df))
     score += 10 * np.sum(np.array(1 - interested))
     return score
+
+
+def print_receipt(badges, best, scores, ranks, seed, iac, quiet=False):
+    def wp(s):
+        fp.write(f'{s}\n')
+        if not quiet:
+            print(s)
+
+    if not exists('out/receipts'):
+        mkdir('out/receipts')
+    with op(f'out/receipts/{int(datetime.utcnow().timestamp())}-{best["score"]}.md') as fp:
+        wp(f'MBU Sorting Script Receipt\n==========================\n')
+        wp(f'Time: {datetime.now()}  ')
+        wp(f'Final Score: {best["score"]}  ')
+        wp(f'Prime Seed: {seed}  ')
+        wp(f'Interest After Clean: {iac}  ')
+        wp(f'\n## Preference Statistics\n')
+        wp(f'| Period | First Pref | Second Pref | Third+ Pref | Sum |')
+        wp(f'| ------ | ---------- | ----------- | ----------- | --- |')
+        for i, p in enumerate(ranks):
+            wp(f'| {i+1:6} | {p[0]:10d} | {p[1]:11d} | {p[2]:11d} | {p[0]+p[1]+p[2]:3d} |')
+        if len(scores) > 1:
+            wp(f'\n## Tournament Results\n')
+            for i in range(9, len(scores), 10):
+                wp(f'- Tournament Round {i+1} Top Score {scores[0:i].max()}')
+            wp(f'\n## Tournament Statistics\n')
+            wp(f'- Tournament Rounds: {len(scores)}')
+            wp(f'- Top Score: {scores.max()}')
+            wp(f'- Mean Score: {scores.mean()}')
+            wp(f'- Median Score: {np.median(scores)}')
+            wp(f'- Lowest Score: {scores.min()}')
+            wp(f'- Winning Seed: {best["seed"]}')
+        wp(f'\n## Class Size Inputs\n')
+        wp(f'| Period 1             | Size | Period 2             | Size | Period 3             | Size |')
+        wp(f'| -------------------- | ---- | -------------------- | ---- | -------------------- | ---- |')
+        for index, row in badges.iterrows():
+            wp(f'| {row["p1"]:20} | {row["p1 capacity"]:4d} | {row["p2"]:20} | {row["p2 capacity"]:4d} | {row["p3"]:20} | {row["p3 capacity"]:4d} |')
+        fp.write('\n')
+
 
 
 @click.command()
@@ -435,7 +476,8 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
             'ranks': ranks,
             'seed': seed,
         }
-        conduct_tournament(pref, badges, interested, best, tournament_rounds)
+        best, scores = conduct_tournament(pref, badges, interested, best, tournament_rounds)
+        print_receipt(badges, best, scores, ranks, seed, interest_after_clean)
 
 
 if __name__ == '__main__':
