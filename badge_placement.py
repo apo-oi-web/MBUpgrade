@@ -215,7 +215,7 @@ def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=No
                 # Remove the preference so that scouts won't be assigned to duplicate classes across periods
                 for j in range(3):
                     for k in ['first', 'second', 'third']:
-                        if periods[j].loc[row['id'], k] is badge:
+                        if periods[j].loc[row['id'], k] == badge:
                             periods[j].loc[row['id'], k] = np.nan
                 return True
         return False
@@ -294,7 +294,7 @@ def conduct_tournament(pref, badges, interested, best, tournament_rounds, time, 
     print('\nStarting Tournament\n===================\n')
     for r in range(tournament_rounds - 1):
         if ((r + 2) % 10) is 0:
-            print(f'- Tournament Round {r + 2} Top Score {scores.max()}')
+            print(f'- Tournament Round {r + 2:3d} Top Score {scores.max()}')
         round_seed = np.random.randint(0, 2 ** 32 - 1, dtype=int)
         assignments, unassigned_df, ranks = assign_scouts(pref, badges, interested, round_seed)
         score = score_assignments(unassigned_df, ranks, interested)
@@ -377,14 +377,16 @@ def export_periods(pref, badges, assignments, unassigned_df, interested, archive
     placements = pd.DataFrame(np.full((len(pref.index), 3), np.nan))
     placements[not_placed] = 'Unassigned'  # order matters
     placements[~interested] = 'Not Interested'
+    print('\nPlacement Warnings\n==================\n')
     for p, p_dict in enumerate(assignments):
         for badge, roster in p_dict.items():
             for scout in roster[1]:
                 if type(scout) is not int:  # filter empty badges
                     continue
                 if type(placements.iloc[scout, p]) is str:
-                    print(f'Scout {name_dict[scout]} with id {scout} was placed into badge {badge} but had status {placements.iloc[scout, p]}')
+                    print(f'- Scout {name_dict[scout]:25} with id {scout:3d} was placed into badge {badge:20} but had status {placements.iloc[scout, p]:20}')
                 placements.iloc[scout, p] = badge
+    print('')
     pos = pref_placed.columns.get_loc(pref_col_names[0][0])
     pref_placed.insert(loc=pos, column='First Period Badge', value=placements.iloc[:, 0])
     pref_placed.insert(loc=pos+1, column='Second Period Badge', value=placements.iloc[:, 1])
@@ -439,7 +441,7 @@ def print_receipt(badges, best, scores, ranks, seed, iac, time, interested, arch
         if len(scores) > 1:
             wp(f'\n## Tournament Results\n')
             for i in range(9, len(scores), 10):
-                wp(f'- Tournament Round {i+1} Top Score {scores[0:i].max()}')
+                wp(f'- Tournament Round {i+1:3d} Top Score {scores[0:i].max()}')
             wp(f'\n## Tournament Statistics\n')
             wp(f'- Tournament Rounds: {len(scores)}')
             wp(f'- Top Score: {scores.max()}')
