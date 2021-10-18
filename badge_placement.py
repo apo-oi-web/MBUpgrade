@@ -29,10 +29,20 @@ pref_col_names = [
     ]
 ]
 
+rank_dict = {
+    0: np.nan,
+    1: 'First Choice',
+    2: 'Second Choice',
+    3: 'Third Choice',
+    4: 'Other Choice',
+}
+
+
 class Sel(Enum):
     PART_TIME = 1
     PICKY = 2
     UNASSIGNED = 3
+
 
 class MBUData:
     def __init__(self, pref, badges, seed):
@@ -430,10 +440,10 @@ def export_periods_two(mbu, time, archive=False):
         for badge in mbu.assignments[p].keys():
             if badge is not np.nan:
                 assignments[p][badge] = (int(mbu.capacities[p][badge]), mbu.assignments[p][badge])
-    export_periods(mbu.pref, mbu.badges, assignments, unassigned_df, mbu.interested, archive, time, mbu.score())
+    export_periods(mbu.pref, mbu.badges, assignments, unassigned_df, mbu.interested, archive, time, mbu.score(), mbu=mbu)
 
 
-def export_periods(pref, badges, assignments, unassigned_df, interested, archive=False, time=None, score=None):
+def export_periods(pref, badges, assignments, unassigned_df, interested, archive=False, time=None, score=None, mbu=None):
     """
     Exports the given assignments to many CSVs. One CSV is placements.csv, which
     adds placement data to the original preference file. The others are files
@@ -533,6 +543,13 @@ def export_periods(pref, badges, assignments, unassigned_df, interested, archive
     pref_placed.insert(loc=pos, column='First Period Badge', value=placements.iloc[:, 0])
     pref_placed.insert(loc=pos+1, column='Second Period Badge', value=placements.iloc[:, 1])
     pref_placed.insert(loc=pos+2, column='Third Period Badge', value=placements.iloc[:, 2])
+
+    if mbu is not None:
+        ranks = mbu.ranks.replace(rank_dict)
+        ranks.iloc[ranks == 0 & mbu.interested] = 'Not Assigned'
+        pref_placed.insert(loc=pos+11, column='First Period Preference', value=ranks.iloc[:, 0])
+        pref_placed.insert(loc=pos+12, column='Second Period Preference', value=ranks.iloc[:, 1])
+        pref_placed.insert(loc=pos+13, column='Third Period Preference', value=ranks.iloc[:, 2])
     pref_placed.to_csv(f'out/placements.csv', index=False)
     if archive and (time is not None):
         pref_placed.to_csv(f'out/archive/{time}-{score}/placements.csv', index=False)
@@ -582,10 +599,10 @@ def print_receipt_two(mbu, scores, seed, time, iac, archive=False, quiet=False):
         'ranks': ranks,
         'seed': mbu.seed,
     }
-    print_receipt(mbu.badges, best, scores, ranks, seed, iac, time, mbu.interested, archive, quiet)
+    print_receipt(mbu.badges, best, scores, ranks, seed, iac, time, mbu.interested, archive, quiet, mbu=mbu)
 
 
-def print_receipt(badges, best, scores, ranks, seed, iac, time, interested, archive=False, quiet=False):
+def print_receipt(badges, best, scores, ranks, seed, iac, time, interested, archive=False, quiet=False, mbu=None):
     """
     Prints a log of this run to console and to a file in out/receipts/. This
     receipt includes details on the best score for this run, how many
@@ -637,14 +654,29 @@ def print_receipt(badges, best, scores, ranks, seed, iac, time, interested, arch
         wp(f'Prime Seed: {seed}  ')
         wp(f'Interest After Clean: {iac}  ')
         wp(f'\n## Preference Statistics\n')
-        wp(f'| Period | First Pref | Second Pref | Third+ Pref | Sum | Unassigned | Not Interested | Total |')
-        wp(f'| :----- | ---------: | ----------: | ----------: | --: | ---------: | -------------: | ----: |')
-        for i, p in enumerate(ranks):
-            not_interested = np.sum(np.array(1 - interested)[:, i])
-            not_assigned = np.sum(np.array(best['unassigned'] & interested)[:, i])
-            s = p[0] + p[1] + p[2] + not_interested + not_assigned
-            wp(f'| {i+1:6} | {p[0]:10d} | {p[1]:11d} | {p[2]:11d} | {p[0]+p[1]+p[2]:3d} | {not_assigned:10d} | {not_interested:14d} | {s:5d} |')
-        wp('\nNote: Numbers may be inconsistent with aliased and sorted spreadsheets if there are blank names.\n')
+
+        if mbu is None:
+            wp(f'| Period | First Pref | Second Pref | Third+ Pref | Sum | Unassigned | Not Interested | Total |')
+            wp(f'| :----- | ---------: | ----------: | ----------: | --: | ---------: | -------------: | ----: |')
+            for i, p in enumerate(ranks):
+                not_interested = np.sum(np.array(1 - interested)[:, i])
+                not_assigned = np.sum(np.array(best['unassigned'] & interested)[:, i])
+                s = p[0] + p[1] + p[2] + not_interested + not_assigned
+                wp(f'| {i+1:6} | {p[0]:10d} | {p[1]:11d} | {p[2]:11d} | {p[0]+p[1]+p[2]:3d} | {not_assigned:10d} | {not_interested:14d} | {s:5d} |')
+        else:
+            wp(f'| Period | First | Second | Third | Other | Sum | Unassigned | Not Interested | Total |')
+            wp(f'| :----- | ----: | -----: | ----: | ----: | --: | ---------: | -------------: | ----: |')
+            for p in range(3):
+                first = np.array(mbu.ranks.iloc[:, p] == 1).sum()
+                second = np.array(mbu.ranks.iloc[:, p] == 2).sum()
+                third = np.array(mbu.ranks.iloc[:, p] == 3).sum()
+                other = np.array(mbu.ranks.iloc[:, p] == 4).sum()
+                unassigned = np.array(mbu.interested.iloc[:, p] & mbu.placements.iloc[:, p].isnull()).sum()
+                not_interested = np.array(~mbu.interested.iloc[:, p]).sum()
+                s = first + second + third + other + unassigned + not_interested
+                wp(f'| {p+1:6} | {first:5d} | {second:6d} | {third:5d} | {other:5d} | {first+second+third:3} | {unassigned:10d} | {not_interested:14d} | {s:5d} |')
+
+        wp('\nNote: Numbers may be inconsistent with aliased and sorted spreadsheets if there are blank names.')
         if scores.size > 1:
             wp(f'\n## Tournament Results\n')
             for i in range(9, len(scores), 10):
