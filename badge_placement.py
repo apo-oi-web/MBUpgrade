@@ -316,186 +316,6 @@ def make_recommendations(periods, badges):
         recommendations.to_csv(f'out/rec/Period_{i+1}_Rec.csv')
 
 
-def get_interested_scouts(periods):
-    """
-    Returns a data frame with n rows and 3 columns to describe the preferences
-    of n scouts across 3 periods. Each entry will be True if a scout is
-    interested in taking classes for the period, as shown by listing at least
-    one preference. All entries with no preferences listed will be false.
-    :param periods: A collection of three data frames, each containing all scout
-    preferences for one period
-    :return: A boolean data frame where entry [r,c] is True if scout r listed at
-    least one preference in period c.
-    """
-    def is_interested(row):
-        return (row['first'] is not np.nan) or (row['second'] is not np.nan) or (row['third'] is not np.nan)
-
-    interested = pd.DataFrame(np.ones((len(periods[0].index), 3), dtype=bool))
-    for i, period in enumerate(periods):
-        interested.iloc[:, i] = period.apply(is_interested, axis=1)
-    return interested
-
-
-def get_part_time_scouts(periods):
-    """
-    Returns a boolean series of part-time scouts. A scout is part-time if
-    they have listed any preferences for at least one period.
-    :param periods: A collection of three data frames, each containing all scout
-    preferences for one period
-    :return: A boolean Series where entry [n] is True if scout n listed no
-    preferences for at least one period
-    """
-    p1_chosen = periods[0].loc[:, 'first'].isnull()
-    p2_chosen = periods[1].loc[:, 'first'].isnull()
-    p3_chosen = periods[2].loc[:, 'first'].isnull()
-    return p1_chosen | p2_chosen | p3_chosen
-
-
-def get_picky_scouts(periods):
-    """
-    Returns a boolean series of picky scouts. A scout is picky if they have
-    listed fewer than three preferences for a given period. This is not a tight
-    or robust definition, but it should not create problems for the assignment
-    algorithm.
-    :param periods: A collection of three data frames, each containing all scout
-    preferences for one period
-    :return: A boolean Series where entry [n] is True if scout n listed fewer
-    than three preferences for any period
-    """
-    p1_chosen_1 = periods[0].loc[:, 'second'].isnull()
-    p1_chosen_2 = periods[0].loc[:, 'third'].isnull()
-    p2_chosen_1 = periods[1].loc[:, 'second'].isnull()
-    p2_chosen_2 = periods[1].loc[:, 'third'].isnull()
-    p3_chosen_1 = periods[2].loc[:, 'second'].isnull()
-    p3_chosen_2 = periods[2].loc[:, 'third'].isnull()
-    return p1_chosen_1 | p1_chosen_2 | p2_chosen_1 | p2_chosen_2 | p3_chosen_1 | p3_chosen_2
-
-
-def get_missed_scouts(unassigned_df):
-    """
-    Returns a boolean series of scouts that are currently unassigned. A scout is
-    unassigned if they have not been placed into a badge for at least one
-    period.
-    :param unassigned_df: A boolean data frame of all scouts who have not yet
-    been assigned to a badge. Entry [r,c] is True if scout r has not been placed
-    into a badge for period c.
-    :return: A boolean series of scouts that are currently unassigned. A scout
-    is unassigned if they have not been placed into a badge for at least one
-    period.
-    """
-    return unassigned_df.iloc[:, 0] | unassigned_df.iloc[:, 1] | unassigned_df.iloc[:, 2]
-
-
-def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=None, use_all_prefs=False):
-    """
-    Attempts to assign scouts with the given ids to badges in every period. If
-    no ids are provided, the default is to use ids of all scouts who have not
-    yet been assigned to badges.
-    :param periods: A collection of three data frames, each containing all scout
-    preferences for one period
-    :param assignments: A collection of three dictionaries, where each key is a
-    badge in the corresponding period, and the value is a tuple where the first
-    item is the badge capacity and the second item is a set of ids for scouts
-    signed up to take it.
-    :param unassigned_df: A boolean data frame of all scouts who have not yet
-    been assigned to a badge. Entry [r,c] is True if scout r has not been placed
-    into a badge for period c.
-    :param ranks: An array where each entry represents the placements for a
-    period. This representation is a sub-array of three entries, one to count
-    scouts who got their first choice, one for second, and one for other.
-    :param seed: The random seed that should be used to shuffle the data frame
-    of chosen scouts
-    :param ids: A series of ids of scouts to attempt to assign.
-    :param use_all_prefs: A flag for whether or not to attempt to use scout
-    preferences for all periods to attempt to assign the current period. This
-    can help remedy erroneous data entry and can better utilize class spaces.
-    """
-    def is_room(tup):
-        return len(tup[1]) < tup[0]
-
-    def has_pref(r):
-        return (r['first'] is not np.nan) or (r['second'] is not np.nan) or (r['third'] is not np.nan)
-
-    def assign(badge):
-        """
-        Ineternal function to attempt to assign the active scout to the given
-        badge. Removes that badge from the scout's preferences on success so
-        that the scout is not assigned to the same badge more than once.
-        :param badge: A string representing the badge to attempt to assign the
-        scout to.
-        :return: True if the assignment was successful, false otherwise.
-        """
-        # If the badge is offered this period
-        if badge in assignments[i].keys():
-            # If there is a preference and room
-            if (badge is not np.nan) and is_room(assignments[i][badge]):
-                badge_roster = assignments[i][badge][1]
-                badge_roster.add(row['id'])
-                unassigned_df.iloc[row['id'], i] = False
-
-                # Remove the preference so that scouts won't be assigned to duplicate classes across periods
-                for j in range(3):
-                    for k in ['first', 'second', 'third']:
-                        if periods[j].loc[row['id'], k] == badge:
-                            periods[j].loc[row['id'], k] = np.nan
-                return True
-        return False
-
-    # Randomize which period goes first
-    for i in pd.Series([0, 1, 2]).sample(frac=1, random_state=seed):
-        # If there are ids to prioritize
-        if ids is not None:
-            records_to_select = ids & unassigned_df.iloc[:, i]
-        else:
-            records_to_select = periods[i].apply(has_pref, axis=1)
-            records_to_select &= unassigned_df[i]
-        chosen = periods[i][records_to_select]  # Careful to make a copy
-        chosen = chosen.sample(frac=1, random_state=seed)  # shuffle
-        for index, row in chosen.iterrows():
-
-            # If the scout has already been assigned, stop
-            if not unassigned_df.iloc[row['id'], i]:
-                continue
-            # Careful not to roll this into a loop. _Continue_ is necessary for outer loop.
-            if assign(row['first']):
-                ranks[i][0] += 1
-                continue
-            if assign(row['second']):
-                ranks[i][1] += 1
-                continue
-            if assign(row['third']):
-                ranks[i][2] += 1
-                continue
-
-            # Attempt to use preferences listed for other badges
-            if use_all_prefs:
-                # Define function to break out of nested loops
-                def go_ham():
-                    """
-                    Internal function that uses all of a scout's listed
-                    preferences to attempt to assign them to a badge for the
-                    active period. This function will only be called if the
-                    use_all_prefs flag is true and if badge assignment using
-                    preferences for this period has failed.
-                    :return: None. This function returns to break out of nested
-                    loops to multiple assignments of the same scout.
-                    """
-                    all_prefs = []
-
-                    # Get other badges
-                    for other_period in [(i + 1) % 3, (i + 2) % 3]:
-                        for other_p_name in ['first', 'second', 'third']:
-                            other_badge = periods[other_period].loc[row['id'], other_p_name]
-                            if other_badge is not np.nan:
-                                all_prefs.append(other_badge)
-                    for badge in all_prefs:
-                        if assign(badge):
-                            # Hard-coded as third-preference equivalent
-                            ranks[i][1] += 1
-                            return
-                go_ham()
-
-
 def assign_scouts_by_id_two(mbu, seed, ids, use_all_prefs=False):
     if ids is None:
         ids = mbu.get_scouts(Sel.UNASSIGNED)
@@ -524,43 +344,6 @@ def assign_scouts_two(mbu, seed):
     assign_scouts_by_id_two(mbu, seed, mbu.get_scouts(Sel.PICKY), use_all_prefs=True)
     assign_scouts_by_id_two(mbu, seed, mbu.get_scouts(Sel.UNASSIGNED))
     assign_scouts_by_id_two(mbu, seed, mbu.get_scouts(Sel.UNASSIGNED), use_all_prefs=True)
-
-
-def assign_scouts(pref, badges, interested, seed):
-    """
-    Attempts to assign scouts into given badges using preferences to badges in
-    the badges data frame. Attempts different assignments, starting with part-
-    time scouts (see get_part_time_scouts()), then picky scouts (see get_picky_
-    scouts()), then all scouts, then all scouts using all preferences.
-    :param pref: The data frame of scout badge preferences
-    :param badges: The data frame of badges offered in each period
-    :param interested: A boolean data frame of interested scouts. Entry [r,c] is
-    True if scout r listed at least one preference in period c.
-    :param seed: The random seed to be used for shuffling the data frame of
-    chosen scouts.
-    :return: The data structure of assignments, a boolean data frame of
-    unassigned scouts, and the list of ranks for each period. See
-    assign_scouts_by_id documentation for details.
-    """
-    periods = extract_periods(pref)
-    assignments = [{}, {}, {}]
-    unassigned_df = interested.copy()
-    # unassigned_df = pd.DataFrame(np.ones((len(pref.index), 3), dtype=bool))
-    ranks = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
-    for i in range(len(periods)):
-        for badge in badges[f'p{i+1}']:
-            if badge is np.nan:
-                continue
-            capacity = badges.loc[badges[f'p{i+1}'] == badge, f'p{i+1} capacity']
-            # Make an empty list for every badge in the period
-            assignments[i][badge] = (int(capacity.iloc[0]), set())
-
-    assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=get_part_time_scouts(periods))
-    assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=get_picky_scouts(periods))
-    assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=get_picky_scouts(periods), use_all_prefs=True)
-    assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed)
-    assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, use_all_prefs=True)
-    return assignments, unassigned_df, ranks
 
 
 def conduct_tournament(pref, badges, interested, best, tournament_rounds, time, archive=False):
@@ -951,7 +734,7 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
         list_courses(extract_periods(pref), badges)
         return
 
-    interested = get_interested_scouts(extract_periods(pref))
+    # interested = get_interested_scouts(extract_periods(pref))
     clean_typos(pref, badges, clean_errors=not stop_before_clear)
 
     if prepare_data:
@@ -963,7 +746,7 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
 
     if interest_after_clean:
         mbu.reset_interest()
-        interested = get_interested_scouts(extract_periods(pref))
+        # interested = get_interested_scouts(extract_periods(pref))
 
     assign_scouts_two(mbu, seed)
     # if tournament_rounds is None:
