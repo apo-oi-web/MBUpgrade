@@ -422,7 +422,7 @@ def assign_scouts(pref, badges, interested, seed):
 
     assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=get_part_time_scouts(periods))
     assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=get_picky_scouts(periods))
-    # assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, get_missed_scouts(unassigned_df), use_all_prefs=True)
+    assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=get_picky_scouts(periods), use_all_prefs=True)
     assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed)
     assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, use_all_prefs=True)
     return assignments, unassigned_df, ranks
@@ -710,6 +710,21 @@ def print_receipt(badges, best, scores, ranks, seed, iac, time, interested, arch
 @click.option('--seed', '-s', required=False, help='Pass in an int to be used as a random seed.', type=int)
 @click.argument('pref-file', type=click.Path(exists=True))
 def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None, interest_after_clean=None, archive=None, recommendations=None, tournament_rounds=None, seed=None):
+    """
+    MBUpgrade is meant to be a multi-purpose script to help manage badge
+    assignments for MBU. The script exhibits different behaviors based on the
+    flags and arguments passed to the script. More info in the readme. The four
+    recommended steps are as follow:
+
+    - python3 badge_placment.py --help
+
+    - python3 badge_placement.py -l PREF_FILE
+
+    - python3 badge_placement.py -r PREF_FILE
+    
+    - python3 badge_placment.py -ait 50 PREF_FILE
+    """  # Click --help output
+
     """
     Main function to execute this program. All parameters are flags set using
     the click package. Flags and arguments are described thus:
