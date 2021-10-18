@@ -65,14 +65,15 @@ class MBUData:
 
     def reset_interest(self):
         def is_intersted(row):
-            if (type(row['first']) is str) or (type(row['second']) is str) or type(row['third'] is str):
-                return True  # For some reason this is necessary?
-            return False
+            return (type(row['first']) == str) or (type(row['second']) == str) or (type(row['third']) == str)
         for i, period in enumerate(self.prefs):
             self.interested.iloc[:, i] = period.apply(is_intersted, axis=1)
 
+    def reset_pref_copies(self):
+        self.prefs = extract_periods(self.pref)
+
     def get_preferences(self, scout_id, period):
-        return self.prefs[period].iloc[scout_id, :]
+        return self.prefs[period].loc[scout_id, ['first', 'second', 'third']]
 
     def clear_preference(self, scout_id, badge):
         for p in range(self.periods):
@@ -83,11 +84,15 @@ class MBUData:
     def has_room(self, badge, period):
         if badge not in self.assignments[period].keys():
             return False
-        return len(self.assignments[period][badge]) >= self.capacities[period][badge]
+        return len(self.assignments[period][badge]) < self.capacities[period][badge]
 
     def assign_scout(self, scout_id, badge, period, rank):
         # Check that the scout has not already been placed
         if type(self.placements.iloc[scout_id, period]) == str:
+            return False
+
+        # Check that the scout is interested in being placed this period
+        if not self.interested.at[scout_id, period]:
             return False
 
         # Check that the badge has room
@@ -130,6 +135,7 @@ class MBUData:
         scores[self.ranks == 1] = 3  # First preference three points
         scores[self.ranks == 2] = 2  # Second preference two points
         scores[self.ranks == 3] = 1  # Third preference one point
+        scores[self.ranks == 4] = 1  # Additional preferences one point
         scores[self.interested & self.placements.isnull()] = -10  # Failed placement -10 points
         return np.sum(scores)
 
@@ -395,7 +401,7 @@ def conduct_tournament(pref, badges, interested, best, tournament_rounds, time, 
 
 
 def export_periods_two(mbu, time, archive=False):
-    unassigned_df = mbu.placements.copy().astype(bool)
+    unassigned_df = mbu.placements.copy().isnull()
     assignments = [{}, {}, {}]
     for p in range(mbu.periods):
         for badge in mbu.assignments[p].keys():
@@ -535,7 +541,7 @@ def score_assignments(unassigned_df, ranks, interested):
 
 
 def print_receipt_two(mbu, scores, seed, time, iac, archive=False, quiet=False):
-    unassigned_df = mbu.placements.copy().astype(bool)
+    unassigned_df = mbu.placements.copy().isnull()
     assignments = [{}, {}, {}]
     for p in range(mbu.periods):
         for badge in mbu.assignments[p].keys():
@@ -545,6 +551,7 @@ def print_receipt_two(mbu, scores, seed, time, iac, archive=False, quiet=False):
     for p in range(mbu.periods):
         for rank in [1, 2, 3]:
             ranks[p][rank-1] = np.array(mbu.ranks.iloc[:, p] == rank).sum()
+        ranks[p][2] += np.array(mbu.ranks.iloc[:, p] == 4).sum()
     best = {
         'score': mbu.score(),
         'assignments': assignments,
@@ -736,6 +743,7 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
 
     # interested = get_interested_scouts(extract_periods(pref))
     clean_typos(pref, badges, clean_errors=not stop_before_clear)
+    mbu.reset_pref_copies()
 
     if prepare_data:
         return
