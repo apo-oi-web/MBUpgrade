@@ -8,6 +8,7 @@ import numpy as np
 from sys import version_info, version
 from random import randrange
 from datetime import datetime
+from enum import Enum
 
 name_str = 'Name'
 # id_str = 'Reference #'
@@ -27,6 +28,110 @@ pref_col_names = [
         'Please select your THIRD choice for the third (2:30-4:30) class',
     ]
 ]
+
+class Sel(Enum):
+    PART_TIME = 1
+    PICKY = 2
+    UNASSIGNED = 3
+
+class MBUData:
+    def __init__(self, pref, badges, seed):
+        self.seed = seed
+        self.periods = 3
+        self.count = len(pref.index)
+        self.pref = pref
+        self.prefs = extract_periods(pref)
+        self.badges = badges
+        self.placements = pd.DataFrame(np.full((self.count, self.periods), np.nan))
+        self.ranks = pd.DataFrame(np.zeros((self.count, self.periods)))
+        self.interested = pd.DataFrame(np.ones((self.count, self.periods), dtype=bool))
+        self.capacities = []
+        self.assignments = []
+        for i in range(self.periods):
+            self.capacities.append({})
+            self.assignments.append({})
+        self._initialize_badges()
+        self.reset_interest()
+
+    def add_badge(self, badge, capacity, period):
+        self.capacities[period][badge] = capacity
+        self.assignments[period][badge] = set()
+
+    def _initialize_badges(self):
+        for index, row in self.badges.iterrows():
+            self.add_badge(row['p1'], row['p1 capacity'], 0)
+            self.add_badge(row['p2'], row['p2 capacity'], 1)
+            self.add_badge(row['p3'], row['p3 capacity'], 2)
+
+    def reset_interest(self):
+        def is_intersted(row):
+            if (type(row['first']) is str) or (type(row['second']) is str) or type(row['third'] is str):
+                return True  # For some reason this is necessary?
+            return False
+        for i, period in enumerate(self.prefs):
+            self.interested.iloc[:, i] = period.apply(is_intersted, axis=1)
+
+    def get_preferences(self, scout_id, period):
+        return self.prefs[period].iloc[scout_id, :]
+
+    def clear_preference(self, scout_id, badge):
+        for p in range(self.periods):
+            for pref in range(3):
+                if self.prefs[p].iloc[scout_id, pref] == badge:
+                    self.prefs[p].iloc[scout_id, pref] = np.nan
+
+    def has_room(self, badge, period):
+        if badge not in self.assignments[period].keys():
+            return False
+        return len(self.assignments[period][badge]) >= self.capacities[period][badge]
+
+    def assign_scout(self, scout_id, badge, period, rank):
+        # Check that the scout has not already been placed
+        if type(self.placements.iloc[scout_id, period]) == str:
+            return False
+
+        # Check that the badge has room
+        if not self.has_room(badge, period):
+            return False
+
+        # Add Scout to Badge
+        self.assignments[period][badge].add(scout_id)
+        self.placements.iloc[scout_id, period] = badge
+        # Log Rank
+        self.ranks.iloc[scout_id, period] = rank
+
+        self.clear_preference(scout_id, badge)
+        return True
+
+    def get_scouts(self, mode):
+        if mode == Sel.PART_TIME:
+            return ~(self.interested.iloc[:, 0] & self.interested.iloc[:, 1] & self.interested.iloc[:, 2])
+        elif mode == Sel.PICKY:
+            p1_chosen_0 = self.prefs[0].loc[:, 'first'].isnull()
+            p1_chosen_1 = self.prefs[0].loc[:, 'second'].isnull()
+            p1_chosen_2 = self.prefs[0].loc[:, 'third'].isnull()
+            p2_chosen_0 = self.prefs[1].loc[:, 'first'].isnull()
+            p2_chosen_1 = self.prefs[1].loc[:, 'second'].isnull()
+            p2_chosen_2 = self.prefs[1].loc[:, 'third'].isnull()
+            p3_chosen_0 = self.prefs[2].loc[:, 'first'].isnull()
+            p3_chosen_1 = self.prefs[2].loc[:, 'second'].isnull()
+            p3_chosen_2 = self.prefs[2].loc[:, 'third'].isnull()
+            return p1_chosen_0 | p1_chosen_1 | p1_chosen_2 \
+                 | p2_chosen_0 | p2_chosen_1 | p2_chosen_2 \
+                 | p3_chosen_0 | p3_chosen_1 | p3_chosen_2
+        elif mode == Sel.UNASSIGNED:
+            return self.placements.iloc[:, 0].isnull() \
+                   | self.placements.iloc[:, 1].isnull() \
+                   | self.placements.iloc[:, 2].isnull()
+        return None
+
+    def score(self):
+        scores = np.zeros((self.count, self.periods))
+        scores[self.ranks == 1] = 3  # First preference three points
+        scores[self.ranks == 2] = 2  # Second preference two points
+        scores[self.ranks == 3] = 1  # Third preference one point
+        scores[self.interested & self.placements.isnull()] = -10  # Failed placement -10 points
+        return np.sum(scores)
 
 
 def cs(l):
@@ -391,6 +496,36 @@ def assign_scouts_by_id(periods, assignments, unassigned_df, ranks, seed, ids=No
                 go_ham()
 
 
+def assign_scouts_by_id_two(mbu, seed, ids, use_all_prefs=False):
+    if ids is None:
+        ids = mbu.get_scouts(Sel.UNASSIGNED)
+
+    for p in pd.Series([0, 1, 2]).sample(frac=1, random_state=seed):
+        # Attempt to assign to preferences, in order
+        chosen = mbu.prefs[p][ids]  # Careful to make a copy
+        chosen = chosen.sample(frac=1, random_state=seed)  # shuffle
+        for index, row in chosen.iterrows():
+            # First attempt period-specific preferences
+            for rank, badge in enumerate(mbu.get_preferences(row['id'], p)):
+                mbu.assign_scout(row['id'], badge, p, rank+1)
+
+            # Attempt to assign other preferences
+            if use_all_prefs:
+                for rank, badge in enumerate(mbu.get_preferences(row['id'], (p+1)%3)):
+                    mbu.assign_scout(row['id'], badge, p, 4)  # Default rank of all_pref badge
+                for rank, badge in enumerate(mbu.get_preferences(row['id'], (p+2)%3)):
+                    mbu.assign_scout(row['id'], badge, p, 4)  # Default rank of all_pref badge
+
+
+def assign_scouts_two(mbu, seed):
+    assign_scouts_by_id_two(mbu, seed, mbu.get_scouts(Sel.PART_TIME))
+    assign_scouts_by_id_two(mbu, seed, mbu.get_scouts(Sel.PICKY))
+    assign_scouts_by_id_two(mbu, seed, mbu.get_scouts(Sel.PART_TIME), use_all_prefs=True)
+    assign_scouts_by_id_two(mbu, seed, mbu.get_scouts(Sel.PICKY), use_all_prefs=True)
+    assign_scouts_by_id_two(mbu, seed, mbu.get_scouts(Sel.UNASSIGNED))
+    assign_scouts_by_id_two(mbu, seed, mbu.get_scouts(Sel.UNASSIGNED), use_all_prefs=True)
+
+
 def assign_scouts(pref, badges, interested, seed):
     """
     Attempts to assign scouts into given badges using preferences to badges in
@@ -474,6 +609,16 @@ def conduct_tournament(pref, badges, interested, best, tournament_rounds, time, 
     print(f'low score: {scores.min()}')
     print(f'winning seed: {best["seed"]}')
     return best, scores
+
+
+def export_periods_two(mbu, time, archive=False):
+    unassigned_df = mbu.placements.copy().astype(bool)
+    assignments = [{}, {}, {}]
+    for p in range(mbu.periods):
+        for badge in mbu.assignments[p].keys():
+            if badge is not np.nan:
+                assignments[p][badge] = (int(mbu.capacities[p][badge]), mbu.assignments[p][badge])
+    export_periods(mbu.pref, mbu.badges, assignments, unassigned_df, mbu.interested, archive, time, mbu.score())
 
 
 def export_periods(pref, badges, assignments, unassigned_df, interested, archive=False, time=None, score=None):
@@ -604,6 +749,27 @@ def score_assignments(unassigned_df, ranks, interested):
     score -= 10 * np.sum(np.array(unassigned_df))
     score += 10 * np.sum(np.array(1 - interested))
     return score
+
+
+def print_receipt_two(mbu, scores, seed, time, iac, archive=False, quiet=False):
+    unassigned_df = mbu.placements.copy().astype(bool)
+    assignments = [{}, {}, {}]
+    for p in range(mbu.periods):
+        for badge in mbu.assignments[p].keys():
+            if badge is not np.nan:
+                assignments[p][badge] = (int(mbu.capacities[p][badge]), mbu.assignments[p][badge])
+    ranks = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
+    for p in range(mbu.periods):
+        for rank in [1, 2, 3]:
+            ranks[p][rank-1] = np.array(mbu.ranks.iloc[:, p] == rank).sum()
+    best = {
+        'score': mbu.score(),
+        'assignments': assignments,
+        'unassigned': unassigned_df,
+        'ranks': ranks,
+        'seed': mbu.seed,
+    }
+    print_receipt(mbu.badges, best, scores, ranks, seed, iac, time, mbu.interested, archive, quiet)
 
 
 def print_receipt(badges, best, scores, ranks, seed, iac, time, interested, archive=False, quiet=False):
@@ -768,9 +934,7 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
         pref = pd.read_csv(pref_file)
     else:
         raise Exception('Please provide a preference CSV as an argument.')
-    # fk = Faker()
-    # fk.seed(seed)
-    # pref['id'] = [fk.uuid4() for _ in range(len(pref.index))]
+
     pref['id'] = range(len(pref.index))
 
     if exists('source_data/badges.csv'):
@@ -780,6 +944,8 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
 
     if not exists('out'):
         mkdir('out')
+
+    mbu = MBUData(pref, badges, seed)
 
     if list_badges:
         list_courses(extract_periods(pref), badges)
@@ -796,25 +962,33 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
         return
 
     if interest_after_clean:
+        mbu.reset_interest()
         interested = get_interested_scouts(extract_periods(pref))
 
-    assignments, unassigned_df, ranks = assign_scouts(pref, badges, interested, seed)
-    score = score_assignments(unassigned_df, ranks, interested)
-    best = {
-        'score': score,
-        'assignments': assignments,
-        'unassigned': unassigned_df,
-        'ranks': ranks,
-        'seed': seed,
-    }
-    if tournament_rounds is None:
-        export_periods(pref, badges, assignments, unassigned_df, interested, archive, time, score)
-        print(f'score: {score}')
-        print_receipt(badges, best, [], ranks, seed, interest_after_clean, time, interested)
-    else:
+    assign_scouts_two(mbu, seed)
+    # if tournament_rounds is None:
+    score = mbu.score()
+    export_periods_two(mbu, time, archive)
+    print(f'score: {score}')
+    print_receipt_two(mbu, np.array([score]), seed, time, interest_after_clean)
 
-        best, scores = conduct_tournament(pref, badges, interested, best, tournament_rounds, time, archive)
-        print_receipt(badges, best, scores, ranks, seed, interest_after_clean, time, interested)
+    # assignments, unassigned_df, ranks = assign_scouts(pref, badges, interested, seed)
+    # score = score_assignments(unassigned_df, ranks, interested)
+    # best = {
+    #     'score': score,
+    #     'assignments': assignments,
+    #     'unassigned': unassigned_df,
+    #     'ranks': ranks,
+    #     'seed': seed,
+    # }
+    # if tournament_rounds is None:
+    #     export_periods(pref, badges, assignments, unassigned_df, interested, archive, time, score)
+    #     print(f'score: {score}')
+    #     print_receipt(badges, best, [], ranks, seed, interest_after_clean, time, interested)
+    # else:
+    #
+    #     best, scores = conduct_tournament(pref, badges, interested, best, tournament_rounds, time, archive)
+    #     print_receipt(badges, best, scores, ranks, seed, interest_after_clean, time, interested)
 
 
 if __name__ == '__main__':
