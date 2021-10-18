@@ -86,6 +86,9 @@ class MBUData:
             return False
         return len(self.assignments[period][badge]) < self.capacities[period][badge]
 
+    def is_eligible(self, scout_id, period):
+        return self.interested.at[scout_id, period] and not type(self.placements.at[scout_id, period]) is str
+
     def assign_scout(self, scout_id, badge, period, rank):
         # Check that the scout has not already been placed
         if type(self.placements.iloc[scout_id, period]) == str:
@@ -330,17 +333,37 @@ def assign_scouts_by_id_two(mbu, seed, ids, use_all_prefs=False):
         # Attempt to assign to preferences, in order
         chosen = mbu.prefs[p][ids]  # Careful to make a copy
         chosen = chosen.sample(frac=1, random_state=seed)  # shuffle
-        for index, row in chosen.iterrows():
-            # First attempt period-specific preferences
-            for rank, badge in enumerate(mbu.get_preferences(row['id'], p)):
-                mbu.assign_scout(row['id'], badge, p, rank+1)
 
-            # Attempt to assign other preferences
+        # Inner loops must be unrolled so that continue statements can break
+        for index, row in chosen.iterrows():
+            if not mbu.is_eligible(index, p):
+                continue
+            # First attempt period-specific preferences
+            if (row['first'] is not np.nan) and mbu.assign_scout(row['id'], row['first'], p, 1):
+                continue
+            if (row['second'] is not np.nan) and mbu.assign_scout(row['id'], row['second'], p, 2):
+                continue
+            if (row['third'] is not np.nan) and mbu.assign_scout(row['id'], row['third'], p, 3):
+                continue
+
             if use_all_prefs:
-                for rank, badge in enumerate(mbu.get_preferences(row['id'], (p+1)%3)):
-                    mbu.assign_scout(row['id'], badge, p, 4)  # Default rank of all_pref badge
-                for rank, badge in enumerate(mbu.get_preferences(row['id'], (p+2)%3)):
-                    mbu.assign_scout(row['id'], badge, p, 4)  # Default rank of all_pref badge
+                # Second attempt preferences for next period
+                if (row['first'] is not np.nan) and mbu.assign_scout(row['id'], row['first'], (p+1)%3, 4):
+                    continue
+                if (row['second'] is not np.nan) and mbu.assign_scout(row['id'], row['second'], (p+1)%3, 4):
+                    continue
+                if (row['third'] is not np.nan) and mbu.assign_scout(row['id'], row['third'], (p+1)%3, 4):
+                    continue
+
+                # Last attempt preferences for two periods over
+                if (row['first'] is not np.nan) and mbu.assign_scout(row['id'], row['first'], (p+2)%3, 4):
+                    continue
+                if (row['second'] is not np.nan) and mbu.assign_scout(row['id'], row['second'], (p+2)%3, 4):
+                    continue
+                if (row['third'] is not np.nan) and mbu.assign_scout(row['id'], row['third'], (p+2)%3, 4):
+                    continue
+
+
 
 
 def assign_scouts_two(mbu, seed):
@@ -622,7 +645,7 @@ def print_receipt(badges, best, scores, ranks, seed, iac, time, interested, arch
             s = p[0] + p[1] + p[2] + not_interested + not_assigned
             wp(f'| {i+1:6} | {p[0]:10d} | {p[1]:11d} | {p[2]:11d} | {p[0]+p[1]+p[2]:3d} | {not_assigned:10d} | {not_interested:14d} | {s:5d} |')
         wp('\nNote: Numbers may be inconsistent with aliased and sorted spreadsheets if there are blank names.\n')
-        if len(scores) > 1:
+        if scores.size > 1:
             wp(f'\n## Tournament Results\n')
             for i in range(9, len(scores), 10):
                 wp(f'- Tournament Round {i+1:3d} Top Score {scores[0:i].max()}')
@@ -757,11 +780,28 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
         # interested = get_interested_scouts(extract_periods(pref))
 
     assign_scouts_two(mbu, seed)
-    # if tournament_rounds is None:
-    score = mbu.score()
-    export_periods_two(mbu, time, archive)
-    print(f'score: {score}')
-    print_receipt_two(mbu, np.array([score]), seed, time, interest_after_clean)
+
+    if tournament_rounds is None:
+        score = mbu.score()
+        export_periods_two(mbu, time, archive)
+        print(f'score: {score}')
+        print_receipt_two(mbu, np.array([score]), seed, time, interest_after_clean)
+    else:
+        np.random.seed(seed)  # Procedurally generate seeds
+        scores = np.array(mbu.score())
+        print('\nStarting Tournament\n===================\n')
+        for round in range(tournament_rounds - 1):
+            if ((round + 2) % 10) is 0:
+                print(f'- Tournament Round {round + 2:3d} Top Score {scores.max()}')
+            round_seed = np.random.randint(0, 2 ** 32 - 1, dtype=int)
+            round_assignments = MBUData(pref, badges, round_seed)
+            assign_scouts_two(round_assignments, seed)
+            round_score = round_assignments.score()
+            scores = np.append(scores, round_score)
+            if round_score > mbu.score():
+                mbu = round_assignments
+        export_periods_two(mbu, time, archive)
+        print_receipt_two(mbu, scores, seed, time, interest_after_clean, archive)
 
     # assignments, unassigned_df, ranks = assign_scouts(pref, badges, interested, seed)
     # score = score_assignments(unassigned_df, ranks, interested)
