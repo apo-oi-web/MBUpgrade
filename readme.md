@@ -1,5 +1,8 @@
 # MBUpgrade: Badge Placement Script
 
+Author: Renee St Louis (rstlouis@wpi.edu)  
+Last Modified: October 2021
+
 1. [MBUpgrade: Badge Placement Script](#mbupgrade-badge-placement-script)
    1. [Overview](#overview)
    2. [Setup](#setup)
