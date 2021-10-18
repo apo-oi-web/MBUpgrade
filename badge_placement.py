@@ -140,7 +140,7 @@ class MBUData:
         scores[self.ranks == 3] = 1  # Third preference one point
         scores[self.ranks == 4] = 1  # Additional preferences one point
         scores[self.interested & self.placements.isnull()] = -10  # Failed placement -10 points
-        return np.sum(scores)
+        return int(np.sum(scores))
 
 
 def cs(l):
@@ -795,31 +795,13 @@ def main(pref_file, list_badges=None, prepare_data=None, stop_before_clear=None,
                 print(f'- Tournament Round {round + 2:3d} Top Score {scores.max()}')
             round_seed = np.random.randint(0, 2 ** 32 - 1, dtype=int)
             round_assignments = MBUData(pref, badges, round_seed)
-            assign_scouts_two(round_assignments, seed)
+            assign_scouts_two(round_assignments, round_seed)
             round_score = round_assignments.score()
             scores = np.append(scores, round_score)
             if round_score > mbu.score():
                 mbu = round_assignments
         export_periods_two(mbu, time, archive)
         print_receipt_two(mbu, scores, seed, time, interest_after_clean, archive)
-
-    # assignments, unassigned_df, ranks = assign_scouts(pref, badges, interested, seed)
-    # score = score_assignments(unassigned_df, ranks, interested)
-    # best = {
-    #     'score': score,
-    #     'assignments': assignments,
-    #     'unassigned': unassigned_df,
-    #     'ranks': ranks,
-    #     'seed': seed,
-    # }
-    # if tournament_rounds is None:
-    #     export_periods(pref, badges, assignments, unassigned_df, interested, archive, time, score)
-    #     print(f'score: {score}')
-    #     print_receipt(badges, best, [], ranks, seed, interest_after_clean, time, interested)
-    # else:
-    #
-    #     best, scores = conduct_tournament(pref, badges, interested, best, tournament_rounds, time, archive)
-    #     print_receipt(badges, best, scores, ranks, seed, interest_after_clean, time, interested)
 
 
 if __name__ == '__main__':
